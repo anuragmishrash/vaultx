@@ -1,0 +1,77 @@
+const TITLE_TO_CATEGORY = {
+  'milk':        'Groceries',
+  'eggs':        'Groceries',
+  'bread':       'Groceries',
+  'rice':        'Groceries',
+  'vegetables':  'Groceries',
+  'fruits':      'Groceries',
+  'oats':        'Groceries',
+  'dal':         'Groceries',
+  'flour':       'Groceries',
+  'sugar':       'Groceries',
+  'oil':         'Groceries',
+  'butter':      'Groceries',
+  'paneer':      'Groceries',
+  'chicken':     'Groceries',
+  'meat':        'Groceries',
+  'grocery':     'Groceries',
+  'sabzi':       'Groceries',
+  'chai':        'Food & Dining',
+  'tea':         'Food & Dining',
+  'coffee':      'Food & Dining',
+  'juice':       'Food & Dining',
+  'zomato':      'Food & Dining',
+  'swiggy':      'Food & Dining',
+  'restaurant':  'Food & Dining',
+  'hotel':       'Food & Dining',
+  'dhaba':       'Food & Dining',
+  'rent':        'Housing',
+  'electricity': 'Utilities',
+  'water bill':  'Utilities',
+  'gas':         'Utilities',
+  'recharge':    'Mobile/Telecom',
+  'mobile':      'Mobile/Telecom',
+  'airtel':      'Mobile/Telecom',
+  'jio':         'Mobile/Telecom',
+  'vi ':         'Mobile/Telecom',
+  'bsnl':        'Mobile/Telecom',
+  'internet':    'Utilities',
+  'wifi':        'Utilities',
+  'broadband':   'Utilities',
+  'gym':         'Health & Fitness',
+  'protein':     'Health & Fitness',
+  'medicine':    'Health & Fitness',
+  'doctor':      'Health & Fitness',
+  'pharmacy':    'Health & Fitness',
+  'medical':     'Health & Fitness',
+  'auto':        'Transport',
+  'cab':         'Transport',
+  'uber':        'Transport',
+  'ola':         'Transport',
+  'rapido':      'Transport',
+  'petrol':      'Transport',
+  'fuel':        'Transport',
+  'metro':       'Transport',
+  'bus':         'Transport',
+  'netflix':     'Entertainment',
+  'spotify':     'Entertainment',
+  'prime':       'Entertainment',
+  'hotstar':     'Entertainment',
+  'disney':      'Entertainment',
+  'youtube':     'Entertainment',
+  'movie':       'Entertainment',
+  'cinema':      'Entertainment',
+  'pvr':         'Entertainment',
+};
+
+export function autoDetectCategory(title) {
+  if (!title) return null;
+  const lower = title.toLowerCase().trim();
+  // Check for exact match first
+  if (TITLE_TO_CATEGORY[lower]) return TITLE_TO_CATEGORY[lower];
+  // Then check for keyword inclusion
+  for (const [keyword, category] of Object.entries(TITLE_TO_CATEGORY)) {
+    if (lower.includes(keyword)) return category;
+  }
+  return null;
+}
