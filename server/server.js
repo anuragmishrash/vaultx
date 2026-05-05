@@ -16,14 +16,18 @@ connectDB();
 
 // Security middleware
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+const clientUrls = process.env.CLIENT_URL 
+  ? process.env.CLIENT_URL.split(',').map(url => url.trim().replace(/\/$/, '')) 
+  : [];
+
 app.use(cors({
   origin: [
     'http://localhost:5173', 
     'http://localhost:5174', 
     'http://127.0.0.1:5173', 
     'http://127.0.0.1:5174',
-    process.env.CLIENT_URL
-  ].filter(Boolean),
+    ...clientUrls
+  ],
   credentials: true,
 }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500, message: 'Too many requests' }));
