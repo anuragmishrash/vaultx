@@ -5,6 +5,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { commitmentsAPI, patternsAPI } from '../api';
 import { useAuthStore } from '../store/authStore';
 import PageWrapper from '../components/layout/PageWrapper';
+import MobilePage from '../components/layout/MobilePage';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -203,9 +204,10 @@ export default function Commitments() {
   const ratioColor = commitmentRatioPct <= 50 ? '#00C896' : commitmentRatioPct <= 70 ? '#F5A623' : '#FF5A5A';
 
   return (
+    <MobilePage title="Commitments" headerRight={<Button size="sm" onClick={() => setAddOpen(true)}>+ Add</Button>}>
     <PageWrapper>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="hidden md:flex items-center justify-between">
           <div>
             <h1 className="font-display font-bold text-2xl text-vault-text-primary flex items-center gap-2">
               <Landmark size={24} className="text-vault-pink" /> My Commitments
@@ -578,6 +580,7 @@ export default function Commitments() {
         />
       </div>
     </PageWrapper>
+    </MobilePage>
   );
 }
 

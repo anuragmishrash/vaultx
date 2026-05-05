@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { cashAPI, transactionsAPI } from '../api';
 import PageWrapper from '../components/layout/PageWrapper';
+import MobilePage from '../components/layout/MobilePage';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -126,9 +127,10 @@ export default function CashTracker() {
   const untracked = env?.untrackedAmount || 0;
 
   return (
+    <MobilePage title="Cash Tracker" headerRight={<Button size="sm" onClick={() => setAddTxOpen(true)}>+ Add</Button>}>
     <PageWrapper>
       <div className="space-y-6">
-        <div>
+        <div className="hidden md:block">
           <h1 className="font-display font-bold text-2xl text-vault-text-primary flex items-center gap-2">
             <Banknote size={24} className="text-vault-amber" /> Cash Tracker
           </h1>
@@ -394,5 +396,6 @@ export default function CashTracker() {
         </Modal>
       </div>
     </PageWrapper>
+    </MobilePage>
   );
 }

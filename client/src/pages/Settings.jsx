@@ -6,6 +6,7 @@ import { authAPI, userAPI } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { useNavigate } from 'react-router-dom';
 import PageWrapper from '../components/layout/PageWrapper';
+import MobilePage from '../components/layout/MobilePage';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -85,9 +86,10 @@ export default function Settings() {
   };
 
   return (
+    <MobilePage title="Settings">
     <PageWrapper>
       <div className="space-y-6">
-        <div>
+        <div className="hidden md:block">
           <h1 className="font-display font-bold text-2xl text-vault-text-primary flex items-center gap-2">
             <SettingsIcon size={24} className="text-vault-text-secondary" /> Settings
           </h1>
@@ -383,5 +385,6 @@ export default function Settings() {
         </div>
       </div>
     </PageWrapper>
+    </MobilePage>
   );
 }

@@ -7,6 +7,7 @@ import {
 import { analyticsAPI } from '../api';
 import { useAuthStore } from '../store/authStore';
 import PageWrapper from '../components/layout/PageWrapper';
+import MobilePage from '../components/layout/MobilePage';
 import Card from '../components/ui/Card';
 import { ChartSkeleton, CardSkeleton } from '../components/ui/Skeleton';
 import { formatINR, formatCompact } from '../utils/formatCurrency';
@@ -60,9 +61,10 @@ export default function Analytics() {
     : [];
 
   return (
+    <MobilePage title="Analytics">
     <PageWrapper>
       <div className="space-y-6">
-        <div>
+        <div className="hidden md:block">
           <h1 className="font-display font-bold text-2xl text-vault-text-primary flex items-center gap-2">
             <BarChart3 size={24} className="text-vault-blue" /> Analytics
           </h1>
@@ -205,5 +207,6 @@ export default function Analytics() {
         )}
       </div>
     </PageWrapper>
+    </MobilePage>
   );
 }

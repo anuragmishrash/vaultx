@@ -22,6 +22,10 @@ import { useAuthStore } from '../store/authStore';
 import { Search, Filter, Download, Trash2, CheckSquare, X, ChevronDown, Edit } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+import MobilePage from '../components/layout/MobilePage';
+import TransactionRow from '../components/features/TransactionRow';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+
 const REGRET_OPTIONS = [
   { value: '', label: 'All' },
   { value: 'pending', label: 'Unrated' },
@@ -44,6 +48,35 @@ export default function Transactions() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const [search, setSearch]   = useState('');
+
+  usePullToRefresh(() => qc.invalidateQueries({ queryKey: ['transactions'] }));
+
+  const repeatMutation = useMutation({
+    mutationFn: (transaction) => {
+      const normalized = transaction.normalizedTitle || transaction.title?.toLowerCase().trim();
+      return transactionsAPI.create({
+        title: transaction.title,
+        amount: transaction.amount,
+        category: transaction.category,
+        paymentMode: transaction.paymentMode,
+        date: new Date().toISOString(),
+        normalizedTitle: normalized,
+        isGuiltyFreeSpend: transaction.isGuiltyFreeSpend || false,
+        regretStatus: transaction.isGuiltyFreeSpend ? 'worth_it' : 'pending',
+        note: `Repeated from ${new Date(transaction.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`,
+      });
+    },
+    onSuccess: (_, v) => {
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['batch-daily'] });
+      qc.invalidateQueries({ queryKey: ['today-titles'] });
+      qc.invalidateQueries({ queryKey: ['zero-streak'] });
+      qc.invalidateQueries({ queryKey: ['zero-logs'] });
+      toast.success(`${v.title} added ✓`);
+    },
+    onError: () => toast.error('Could not repeat — try again'),
+  });
   const [filters, setFilters] = useState({ category: '', paymentMode: '', regret: '' });
   const [startDate, setStartDate] = useState(getMonthStart);
   const [endDate,   setEndDate]   = useState(getMonthEnd);
@@ -170,6 +203,7 @@ export default function Transactions() {
   const toggleAll = () => setSelected(selected.length === data?.transactions?.length ? [] : data?.transactions?.map(t => t._id) || []);
 
   return (
+    <MobilePage title="Transactions" headerRight={<Button size="sm" onClick={() => setAddOpen(true)}>+ Add</Button>}>
     <PageWrapper>
       <div className="space-y-5">
         {(!user?.monthlySalary || user.monthlySalary <= 0) && (
@@ -186,7 +220,7 @@ export default function Transactions() {
         {/* ⚡ Batch Daily Add */}
         <BatchDailyAdd onAdded={() => { refetch(); qc.invalidateQueries({ queryKey: ['today-titles'] }); }} />
 
-        <div className="flex items-center justify-between">
+        <div className="hidden md:flex items-center justify-between">
           <h1 className="font-display font-bold text-2xl text-vault-text-primary">Transactions</h1>
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="sm" onClick={exportCSV}><Download size={14} /> Export</Button>
@@ -321,78 +355,21 @@ export default function Transactions() {
           <AnimatePresence>
             <div className="space-y-2">
               {(data?.transactions || []).map(t => {
-                const meta = getCategoryIcon(t.category);
-                const Icon = meta.icon;
-                const isSelected = selected.includes(t._id);
+                const normalized = t.normalizedTitle || t.title?.toLowerCase().trim();
+                const alreadyAddedToday = todayTitles?.has(normalized);
+
                 return (
-                  <motion.div
+                  <TransactionRow
                     key={t._id}
-                    layout
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, x: 80, scale: 0.95 }}
-                    className={`glass-card p-4 flex items-center gap-4 transition-all ${isSelected ? 'border-vault-amber' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(t._id)}
-                      className="w-4 h-4 accent-amber-500 flex-shrink-0"
-                    />
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: meta.bg }}>
-                      <Icon size={18} style={{ color: meta.color }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-vault-text-primary truncate">{t.title}</p>
-                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                        <span className="text-xs text-vault-text-muted">{format(new Date(t.date), 'MMM d, yyyy')}</span>
-                        <span className="text-xs text-vault-text-muted">{t.paymentMode}</span>
-                        {t.timeCostHours > 0 && <span className="text-xs text-vault-text-muted">{formatTimeCost(t.timeCostHours)} of work</span>}
-                        {getFutureValueLabel(t.amount) && <span className="text-xs text-vault-text-muted">{getFutureValueLabel(t.amount)}</span>}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                      <span className="font-semibold text-vault-text-primary">{formatINR(t.amount)}</span>
-                      <RegretBadge status={t.regretStatus} />
-                    </div>
-
-                    {/* Regret rate buttons — only for regular transactions */}
-                    {t.regretStatus === 'pending' && !t.isGuiltyFreeSpend && !t.isCommitmentPayment && (
-                      <div className="hidden md:flex gap-1 ml-2">
-                        {[
-                          { r: 'worth_it', label: '✓', cls: 'text-vault-teal hover:bg-[rgba(0,200,150,0.1)]' },
-                          { r: 'okay', label: '~', cls: 'text-vault-amber hover:bg-[rgba(245,166,35,0.1)]' },
-                          { r: 'regret', label: '✗', cls: 'text-vault-red hover:bg-[rgba(255,90,90,0.1)]' },
-                        ].map(({ r, label, cls }) => (
-                          <button
-                            key={r}
-                            onClick={() => rateMutation.mutate({ id: t._id, rating: r })}
-                            className={`w-7 h-7 rounded-md text-sm font-bold transition-all ${cls}`}
-                          >{label}</button>
-                        ))}
-                      </div>
-                    )}
-                    {t.isGuiltyFreeSpend && (
-                      <div className="hidden md:flex ml-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider bg-vault-teal/10 text-vault-teal px-2 py-1 rounded">Guilt-Free</span>
-                      </div>
-                    )}
-                    {t.isCommitmentPayment && (
-                      <div className="hidden md:flex ml-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider bg-vault-blue/10 text-vault-blue px-2 py-1 rounded">Bill</span>
-                      </div>
-                    )}
-
-                    {/* ↺ Repeat Button */}
-                    <RepeatButton transaction={t} todayTitles={todayTitles} />
-
-                    <button onClick={() => setEditTx(t)} className="p-1.5 hover:text-vault-amber text-vault-text-muted transition-all">
-                      <Edit size={14} />
-                    </button>
-                    <button onClick={() => deleteMutation.mutate(t._id)} className="p-1.5 hover:text-vault-red text-vault-text-muted transition-all">
-                      <Trash2 size={14} />
-                    </button>
-                  </motion.div>
+                    transaction={t}
+                    onEdit={setEditTx}
+                    onDelete={(id) => deleteMutation.mutate(id)}
+                    onRate={(id, rating) => rateMutation.mutate({ id, rating })}
+                    onRepeat={repeatMutation.mutate}
+                    alreadyAddedToday={alreadyAddedToday}
+                    isSelected={selected.includes(t._id)}
+                    onToggleSelect={toggleSelect}
+                  />
                 );
               })}
             </div>
@@ -410,5 +387,6 @@ export default function Transactions() {
       </div>
       <AddTransactionModal isOpen={addOpen || !!editTx} onClose={() => { setAddOpen(false); setEditTx(null); }} editTx={editTx} />
     </PageWrapper>
+    </MobilePage>
   );
 }

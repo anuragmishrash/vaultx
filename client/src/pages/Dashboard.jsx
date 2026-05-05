@@ -20,6 +20,10 @@ import { Link } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import toast from 'react-hot-toast';
 
+import MobilePage from '../components/layout/MobilePage';
+import TransactionRow from '../components/features/TransactionRow';
+import { useIsMobile } from '../hooks/useMediaQuery';
+
 const listContainer = { animate: { transition: { staggerChildren: 0.06 } } };
 const listItem = { initial: { opacity: 0, x: -12 }, animate: { opacity: 1, x: 0 } };
 
@@ -220,6 +224,7 @@ export default function Dashboard() {
   const { user } = useAuthStore();
   const { setAddTransactionOpen } = useUIStore();
   const qc = useQueryClient();
+  const isMobile = useIsMobile();
 
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],
@@ -543,10 +548,11 @@ export default function Dashboard() {
 
   return (
     <>
+    <MobilePage title="Dashboard">
     <PageWrapper>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="hidden md:flex items-center justify-between">
           <div>
             <h1 className="font-display font-bold text-2xl text-vault-text-primary">
               Hey, {user?.name?.split(' ')[0]} 👋
@@ -569,7 +575,12 @@ export default function Dashboard() {
             {[...Array(4)].map((_, i) => <CardSkeleton key={i} />)}
           </div>
         ) : (
-          <motion.div variants={listContainer} initial="initial" animate="animate" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <motion.div variants={listContainer} initial="initial" animate="animate" 
+            style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
+              gap: isMobile ? '10px' : '16px',
+            }}>
             {/* Total Spent */}
             <motion.div variants={listItem}>
               <Card className="col-span-1 kpi-card-spent">
@@ -651,7 +662,12 @@ export default function Dashboard() {
 
         {/* Feature 1 & 3: True Free Money Widget with Time Filter & Sparkline */}
         {displayWf && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+            gap: '14px',
+            marginBottom: '14px',
+          }}>
             <Card glow="amber">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -847,7 +863,12 @@ export default function Dashboard() {
         </div>
 
         {/* Charts row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : '1fr 360px',
+          gap: '16px',
+          marginBottom: '16px',
+        }}>
           {/* Daily Spend Chart */}
           <Card className="lg:col-span-2" padding={false}>
             <div className="p-5 pb-2">
@@ -991,33 +1012,17 @@ export default function Dashboard() {
             </Card>
           ) : (
             <motion.div variants={listContainer} initial="initial" animate="animate" className="space-y-2">
-              {data.recentTransactions.map(t => {
-                const meta = getCategoryMeta(t.category);
-                const Icon = meta.icon;
-                return (
-                  <motion.div key={t._id} variants={listItem} className="glass-card p-4 flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: meta.bg }}>
-                      <Icon size={18} style={{ color: meta.color }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-vault-text-primary truncate">{t.title}</p>
-                      <p className="text-xs text-vault-text-muted">
-                        {format(new Date(t.date), 'MMM d')}
-                        {t.timeCostHours > 0 && ` · ${t.timeCostHours}h of work`}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="font-semibold text-vault-text-primary">{formatINR(t.amount)}</span>
-                      <RegretBadge status={t.regretStatus} />
-                    </div>
-                  </motion.div>
-                );
-              })}
+              {data.recentTransactions.map(t => (
+                <motion.div key={t._id} variants={listItem}>
+                  <TransactionRow transaction={t} />
+                </motion.div>
+              ))}
             </motion.div>
           )}
         </div>
       </div>
     </PageWrapper>
+    </MobilePage>
 
       {/* Log Income Modal */}
       <AnimatePresence>
