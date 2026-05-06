@@ -11,13 +11,29 @@ export default function MobileNav() {
   const [showFabMenu, setShowFabMenu] = useState(false);
   const [showMoreDrawer, setShowMoreDrawer] = useState(false);
   const pressTimer = useRef(null);
+  const didLongPress = useRef(false);   // tracks whether the 500 ms timer fired
 
-  const handlePressStart = () => {
-    pressTimer.current = setTimeout(() => setShowFabMenu(true), 500);
+  const handlePressStart = (e) => {
+    didLongPress.current = false;
+    pressTimer.current = setTimeout(() => {
+      didLongPress.current = true;
+      setShowFabMenu(true);
+    }, 500);
   };
-  const handlePressEnd = () => {
+
+  const handlePressEnd = (e) => {
     if (pressTimer.current) clearTimeout(pressTimer.current);
-    if (!showFabMenu) setAddTransactionOpen(true);
+    // Only open the modal on a quick tap (not a long-press)
+    if (!didLongPress.current) {
+      setAddTransactionOpen(true);
+    }
+    didLongPress.current = false;
+  };
+
+  // Prevent ghost mouse events after touch on mobile
+  const handleTouchEnd = (e) => {
+    e.preventDefault();   // stops the synthetic 'click' that would fire ~300ms later
+    handlePressEnd(e);
   };
 
   const NAV = [
@@ -63,12 +79,13 @@ export default function MobileNav() {
         <button
           onMouseDown={handlePressStart} onMouseUp={handlePressEnd}
           onMouseLeave={() => { if (pressTimer.current) clearTimeout(pressTimer.current); }}
-          onTouchStart={handlePressStart} onTouchEnd={handlePressEnd}
+          onTouchStart={handlePressStart} onTouchEnd={handleTouchEnd}
           style={{
             border: 'none', background: 'transparent', cursor: 'pointer',
             WebkitUserSelect: 'none', WebkitTouchCallout: 'none',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             WebkitTapHighlightColor: 'transparent',
+            touchAction: 'manipulation',
           }}>
           <div style={{
             width: 58, height: 58, borderRadius: '50%',
