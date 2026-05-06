@@ -1,34 +1,42 @@
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const ZeroDayLog = require('../models/ZeroDayLog');
+const CommitmentLog = require('../models/CommitmentLog');
 const mongoose = require('mongoose');
 
 /**
  * Determines if a specific calendar date was a zero day for a user.
- * Zero day = no regular transactions on that date.
- * Commitment payments and guilt-free spends are excluded.
- * Regret rating has NO effect.
- * Amount has NO minimum threshold — ₹1 still breaks a zero day.
+ * Zero day = no regular transactions AND no commitment payments on that date.
+ * Guilt-free spends and ATM withdrawals are excluded.
+ * Paying rent/any commitment BREAKS your zero-day streak.
  */
 async function isZeroDay(userId, date) {
   const userObjectId = new mongoose.Types.ObjectId(userId.toString());
-  // Build date range for the full calendar day in LOCAL time
-  // Use start of day 00:00:00 to end of day 23:59:59
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
+  const start = new Date(date); start.setHours(0, 0, 0, 0);
+  const end   = new Date(date); end.setHours(23, 59, 59, 999);
 
-  const end = new Date(date);
-  end.setHours(23, 59, 59, 999);
-
+  // Count regular transactions (excluding ATM and guilt-free)
   const spendCount = await Transaction.countDocuments({
-    userId: userObjectId,
-    date: { $gte: start, $lte: end },
-    isATMWithdrawal: { $ne: true }           // exclude ATM withdrawals
-    // NO amount filter — any amount, even ₹1, breaks a zero day
-    // NO regret filter — Worth It spends still break zero day
+    userId:            userObjectId,
+    date:              { $gte: start, $lte: end },
+    isATMWithdrawal:   { $ne: true },
+    isGuiltyFreeSpend: { $ne: true },
+    // NOTE: isCommitmentPayment is NOT excluded here because auto-created
+    // commitment transactions are already counted below via CommitmentLog,
+    // and we want manual commitment-linked transactions to also count.
   });
 
-  return spendCount === 0;
+  if (spendCount > 0) return false;
+
+  // Also check CommitmentLog for any payment recorded on this date
+  // (covers the case where commitments are paid via paidOn without a transaction)
+  const commitmentPaidCount = await CommitmentLog.countDocuments({
+    userId:  userObjectId,
+    isPaid:  true,
+    paidOn:  { $gte: start, $lte: end },
+  });
+
+  return commitmentPaidCount === 0;
 }
 
 /**

@@ -39,7 +39,7 @@ export const subscriptionsAPI = {
 };
 
 export const analyticsAPI = {
-  getDashboard: () => api.get('/analytics/dashboard'),
+  getDashboard: (period = 'this_month') => api.get(`/analytics/dashboard?period=${period}`),
   getMonthly: (months = 6) => api.get('/analytics/monthly', { params: { months } }),
   getCategoryTrends: (months = 6) => api.get('/analytics/categories', { params: { months } }),
   getDayOfWeek: () => api.get('/analytics/dayofweek'),

@@ -226,19 +226,22 @@ export default function Dashboard() {
   const qc = useQueryClient();
   const isMobile = useIsMobile();
 
+  const [tfmTab, setTfmTab] = useState('this_month');
+
   const { data, isLoading } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => analyticsAPI.getDashboard().then(r => r.data),
+    queryKey: ['dashboard', tfmTab],
+    queryFn: () => analyticsAPI.getDashboard(tfmTab).then(r => r.data),
+    staleTime: 30 * 1000,
   });
 
-  const [tfmTab, setTfmTab] = useState('this_month');
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
   const [incomeForm, setIncomeForm] = useState({ amount: '', date: format(new Date(), 'yyyy-MM-dd'), note: '' });
   
   const now = new Date();
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  
-  const { data: historicalWf, refetch: refetchTfm } = useQuery({
+
+  // historicalWf kept for sparkline only — KPI values now come from API
+  const { data: historicalWf } = useQuery({
     queryKey: ['historical-waterfall', tfmTab],
     queryFn: async () => {
       const { analyticsAPI } = await import('../api');
@@ -258,6 +261,7 @@ export default function Dashboard() {
     enabled: true,
   });
 
+
   // Income entries for This Month
   const { data: incomeData, refetch: refetchIncome } = useQuery({
     queryKey: ['income', currentMonthStr],
@@ -271,11 +275,11 @@ export default function Dashboard() {
       setIncomeModalOpen(false);
       setIncomeForm({ amount: '', date: format(new Date(), 'yyyy-MM-dd'), note: '' });
       refetchIncome();
-      refetchTfm();
-      qc.invalidateQueries({ queryKey: ['historical-waterfall', 'this_month'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
     onError: () => toast.error('Failed to log income'),
   });
+
 
   const handleLogIncome = () => {
     const amt = parseFloat(incomeForm.amount);
@@ -470,15 +474,15 @@ export default function Dashboard() {
   const rateMutation = useMutation({
     mutationFn: ({ id, rating }) => transactionsAPI.rateRegret(id, rating),
     onMutate: async ({ id, rating }) => {
-      await qc.cancelQueries({ queryKey: ['dashboard'] });
-      const prev = qc.getQueryData(['dashboard']);
-      qc.setQueryData(['dashboard'], old => ({
+      await qc.cancelQueries({ queryKey: ['dashboard', tfmTab] });
+      const prev = qc.getQueryData(['dashboard', tfmTab]);
+      qc.setQueryData(['dashboard', tfmTab], old => ({
         ...old,
-        pendingRegret: old.pendingRegret.filter(t => t.id !== id),
+        pendingRegret: old?.pendingRegret?.filter(t => t.id !== id) ?? [],
       }));
       return { prev };
     },
-    onError: (_, __, ctx) => { qc.setQueryData(['dashboard'], ctx.prev); toast.error('Failed to rate'); },
+    onError: (_, __, ctx) => { qc.setQueryData(['dashboard', tfmTab], ctx.prev); toast.error('Failed to rate'); },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['dashboard'] }); toast.success('Rated!'); },
   });
 
@@ -491,41 +495,40 @@ export default function Dashboard() {
   const isOverBudget = kpi?.isOverBudget;
   const budgetSource = kpi?.budgetSource || 'none';
   const budgetLabel = kpi?.budgetLabel || 'No budget set';
-  const budgetColor = !budget ? '#4A4E65' : budgetPct < 60 ? '#00C896' : budgetPct < 85 ? '#F5A623' : '#FF5A5A';
+  const budgetColor = !budget ? '#4A4E65' : (uiKpi?.progressPct ?? budgetPct) < 60 ? '#00C896' : (uiKpi?.progressPct ?? budgetPct) < 85 ? '#F5A623' : '#FF5A5A';
   const forecastOvershoot = forecast?.overshoot || 0;
 
+
+  // uiKpi — reads from API response (which now includes commitment payments in totalSpent)
   const uiKpi = useMemo(() => {
-    if (!dynamicKpi) return null;
-    const baseBudget = budget || 0;
-    
-    let spentLabel = 'SPENT THIS MONTH';
-    let poolLabel = 'POOL REMAINING';
-    let spentValue = dynamicKpi.totalSpend;
-    let poolLine = baseBudget ? `Pool: ${formatINR(baseBudget)}` : 'No budget set';
-    let poolLeft = baseBudget - spentValue;
-    let progressPct = baseBudget > 0 ? Math.min(Math.round((spentValue / baseBudget) * 100), 100) : 0;
-    
-    if (tfmTab === 'last_month') {
-      spentLabel = 'SPENT LAST MONTH';
-      poolLabel = 'LAST MONTH REMAINING';
-    } else if (tfmTab === '3_months') {
-      spentLabel = 'AVG MONTHLY SPEND';
-      poolLabel = 'AVG MONTHLY REMAINING';
-      spentValue = Math.round(dynamicKpi.totalSpend / 3);
-      poolLeft = baseBudget - spentValue;
-      poolLine = baseBudget ? `Monthly avg · ${formatINR(baseBudget)} pool` : 'Monthly avg';
-      progressPct = baseBudget > 0 ? Math.min(Math.round((spentValue / baseBudget) * 100), 100) : 0;
-    } else if (tfmTab === 'all_time') {
-      spentLabel = 'TOTAL SPENT';
-      poolLabel = 'AVG MONTHLY REMAINING';
-      poolLine = 'Since account created';
-      const numMonths = displayWf?.numberOfMonths || 1;
-      poolLeft = baseBudget - Math.round(dynamicKpi.totalSpend / numMonths);
-      progressPct = baseBudget > 0 && spentValue > baseBudget ? 100 : (baseBudget > 0 ? Math.min(Math.round((spentValue / baseBudget) * 100), 100) : 0);
-    }
-    
-    return { spentLabel, poolLabel, spentValue, poolLine, poolLeft, progressPct };
-  }, [dynamicKpi, budget, tfmTab, displayWf]);
+    if (!data?.kpi) return null;
+    const kpiData = data.kpi;
+    const baseBudget = kpiData.budget || 0;
+    const spentValue = kpiData.displaySpent ?? kpiData.totalSpent ?? 0;
+    const poolLeft   = kpiData.poolRemaining ?? (baseBudget ? baseBudget - spentValue : null);
+    const progressPct = baseBudget > 0 ? Math.min(Math.round((spentValue / baseBudget) * 100), 100) : 0;
+
+    let poolLine = baseBudget
+      ? (tfmTab === '3_months'
+          ? `Monthly avg · ${formatINR(baseBudget)} pool`
+          : tfmTab === 'all_time'
+          ? 'Since account created'
+          : `Pool: ${formatINR(baseBudget)}`)
+      : 'No budget set';
+
+    return {
+      spentLabel:  data.spentLabel || 'SPENT THIS MONTH',
+      poolLabel:   tfmTab === 'this_month' ? 'POOL REMAINING' :
+                   tfmTab === 'last_month' ? 'LAST MONTH REMAINING' : 'AVG MONTHLY REMAINING',
+      spentValue,
+      poolLine,
+      poolLeft:    poolLeft ?? 0,
+      progressPct,
+      variableSpend:        kpiData.variableSpend ?? 0,
+      commitmentsPaidAmount: kpiData.commitmentsPaidAmount ?? 0,
+    };
+  }, [data, tfmTab]);
+
   const dayOfMonth = new Date().getDate();
   const forecastConf = forecast?.confidence;
   const forecastMsg  = forecast?.message;
@@ -711,10 +714,14 @@ export default function Dashboard() {
                           <> · −{formatINR(data?.unpaidCommitments ?? 0)} pending bills</>
                         )}
                       </p>
-                      {/* Period spend breakdown */}
                       <p className="text-xs text-vault-text-muted mt-0.5">
-                        {formatINR(displayWf.variableSpending)} spent · {formatINR(displayWf.totalCommitments)} committed
+                        {/* Period spend breakdown — now uses API data with commitment payments */}
+                        {uiKpi?.variableSpend > 0 && `${formatINR(uiKpi.variableSpend)} variable`}
+                        {uiKpi?.variableSpend > 0 && uiKpi?.commitmentsPaidAmount > 0 && ' · '}
+                        {uiKpi?.commitmentsPaidAmount > 0 && `${formatINR(uiKpi.commitmentsPaidAmount)} bills paid`}
+                        {(uiKpi?.variableSpend ?? 0) === 0 && (uiKpi?.commitmentsPaidAmount ?? 0) === 0 && 'No spends recorded'}
                       </p>
+
                     </div>
                     {/* Sparkline */}
                     {sparklineData && sparklineData.length > 0 && (
