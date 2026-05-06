@@ -5,6 +5,22 @@ if (!API_BASE_URL.endsWith('/api')) {
   API_BASE_URL = API_BASE_URL.replace(/\/$/, '') + '/api';
 }
 
+const TOKEN_KEY = 'vault_access_token';
+
+function getToken() {
+  // In-memory first (fastest), then localStorage fallback
+  return window.__vaultAccessToken || localStorage.getItem(TOKEN_KEY) || null;
+}
+
+function setToken(token) {
+  window.__vaultAccessToken = token;
+  if (token) {
+    try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+  } else {
+    try { localStorage.removeItem(TOKEN_KEY); } catch {}
+  }
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -13,7 +29,7 @@ const api = axios.create({
 
 // Request interceptor — attach access token
 api.interceptors.request.use((config) => {
-  const token = window.__vaultAccessToken;
+  const token = getToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -26,7 +42,14 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && error.response?.data?.code === 'TOKEN_EXPIRED' && !original._retry) {
+
+    // Retry on any 401 except the refresh-token endpoint itself
+    if (
+      error.response?.status === 401 &&
+      !original._retry &&
+      !original.url?.includes('/auth/refresh-token') &&
+      !original.url?.includes('/auth/login')
+    ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           refreshQueue.push({ resolve, reject });
@@ -46,7 +69,14 @@ api.interceptors.response.use(
           { withCredentials: true }
         );
         const newToken = data.accessToken;
-        window.__vaultAccessToken = newToken;
+        setToken(newToken);
+
+        // Also update zustand store if available
+        try {
+          const { useAuthStore } = await import('../store/authStore');
+          useAuthStore.getState().setAccessToken(newToken);
+        } catch {}
+
         refreshQueue.forEach(p => p.resolve(newToken));
         refreshQueue = [];
         original.headers.Authorization = `Bearer ${newToken}`;
@@ -54,8 +84,11 @@ api.interceptors.response.use(
       } catch (err) {
         refreshQueue.forEach(p => p.reject(err));
         refreshQueue = [];
-        window.__vaultAccessToken = null;
-        window.location.href = '/login';
+        setToken(null);
+        // Only redirect if not already on a public page
+        if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+          window.location.href = '/login';
+        }
         return Promise.reject(err);
       } finally {
         isRefreshing = false;

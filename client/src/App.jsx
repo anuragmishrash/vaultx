@@ -48,26 +48,40 @@ function TokenRefresher({ children }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated && !window.__vaultAccessToken) {
-      axios.post(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/auth/refresh-token`,
-        {},
-        { withCredentials: true }
-      )
-        .then(({ data }) => {
-          if (data.accessToken) {
-            window.__vaultAccessToken = data.accessToken;
-            setAccessToken(data.accessToken);
-          }
-        })
-        .catch(() => {
-          // Refresh cookie expired — force re-login
-          logout();
-        })
-        .finally(() => setReady(true));
-    } else {
+    if (!isAuthenticated) {
       setReady(true);
+      return;
     }
+
+    // If we already have a token in memory (or localStorage), use it immediately
+    const storedToken = window.__vaultAccessToken || localStorage.getItem('vault_access_token');
+    if (storedToken) {
+      window.__vaultAccessToken = storedToken;
+      setAccessToken(storedToken);
+      setReady(true);
+      return;
+    }
+
+    // No token at all — call the refresh-token endpoint (uses httpOnly cookie)
+    axios.post(
+      `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/auth/refresh-token`,
+      {},
+      { withCredentials: true }
+    )
+      .then(({ data }) => {
+        if (data.accessToken) {
+          window.__vaultAccessToken = data.accessToken;
+          try { localStorage.setItem('vault_access_token', data.accessToken); } catch {}
+          setAccessToken(data.accessToken);
+        } else {
+          logout();
+        }
+      })
+      .catch(() => {
+        // Refresh cookie expired — must re-login
+        logout();
+      })
+      .finally(() => setReady(true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) {

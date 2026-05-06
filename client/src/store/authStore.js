@@ -1,6 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { subscribeWithSelector } from 'zustand/middleware';
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+const TOKEN_KEY = 'vault_access_token';
+
+function saveToken(token) {
+  window.__vaultAccessToken = token;
+  if (token) {
+    try { localStorage.setItem(TOKEN_KEY, token); } catch {}
+  } else {
+    try { localStorage.removeItem(TOKEN_KEY); } catch {}
+  }
+}
+
+function loadToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const useAuthStore = create(
   persist(
@@ -10,28 +26,42 @@ export const useAuthStore = create(
       isAuthenticated: false,
 
       setAuth: (user, accessToken) => {
-        window.__vaultAccessToken = accessToken;
+        saveToken(accessToken);
         set({ user, accessToken, isAuthenticated: true });
       },
 
       setAccessToken: (token) => {
-        window.__vaultAccessToken = token;
+        saveToken(token);
         set({ accessToken: token });
       },
 
       updateUser: (updates) => set(state => ({ user: { ...state.user, ...updates } })),
 
       logout: () => {
-        window.__vaultAccessToken = null;
+        saveToken(null);
         set({ user: null, accessToken: null, isAuthenticated: false });
       },
     }),
     {
       name: 'vault-auth',
-      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+      // Persist user + auth flag + the token itself
+      partialize: (state) => ({
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+        accessToken: state.accessToken,
+      }),
       onRehydrateStorage: () => (state) => {
-        // Clear stale access token on reload (it's in memory only)
-        if (state) state.accessToken = null;
+        // On rehydration, re-populate the in-memory global AND localStorage slot
+        if (state?.accessToken) {
+          saveToken(state.accessToken);
+        } else {
+          // Try localStorage directly in case zustand didn't persist it
+          const stored = loadToken();
+          if (stored && state) {
+            state.accessToken = stored;
+            saveToken(stored);
+          }
+        }
       },
     }
   )
