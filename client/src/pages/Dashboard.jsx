@@ -490,7 +490,10 @@ export default function Dashboard() {
   useStreakMilestoneToast(kpi?.zeroDayStreak);
   const forecast = data?.forecast;
   const budget = kpi?.budget;
+  const isOverBudget = kpi?.isOverBudget;
   const budgetPct = kpi?.budgetPercent ?? 0;
+  const budgetSource = kpi?.budgetSource || 'none';
+  const budgetLabel = kpi?.budgetLabel || 'No budget set';
   const forecastOvershoot = forecast?.overshoot || 0;
 
   // uiKpi — reads from API response (which now includes commitment payments in totalSpent)
