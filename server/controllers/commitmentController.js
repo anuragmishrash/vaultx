@@ -2,6 +2,8 @@ const Commitment = require('../models/Commitment');
 const CommitmentLog = require('../models/CommitmentLog');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
+const Account = require('../models/Account');
+const mongoose = require('mongoose');
 const { computeWaterfall } = require('../utils/waterfallEngine');
 const { getCommitmentStatusForMonth } = require('../utils/commitmentHelpers');
 const { predictFlexibleAmount, detectUnaddedCommitments, detectYoYDrift } = require('../utils/brainEngine');
@@ -224,11 +226,90 @@ const getVariance = async (req, res, next) => {
 
 const getWaterfall = async (req, res, next) => {
   try {
-    const now = new Date();
-    const month = parseInt(req.query.month) || now.getMonth() + 1;
-    const year = parseInt(req.query.year) || now.getFullYear();
-    const data = await computeWaterfall(req.user._id, month, year);
-    res.json({ success: true, ...data });
+    const userId = new mongoose.Types.ObjectId(req.user._id.toString());
+    const month  = parseInt(req.query.month) || new Date().getMonth() + 1;
+    const year   = parseInt(req.query.year)  || new Date().getFullYear();
+
+    // Get ALL active commitments
+    const commitments = await Commitment.find({ userId, isActive: true });
+
+    // Get logs for this month
+    const logs = await CommitmentLog.find({ userId, month, year });
+
+    // For each commitment, determine its status and actual paid amount
+    const enriched = commitments.map(c => {
+      const log = logs.find(l => l.commitmentId?.toString() === c._id.toString());
+      return {
+        ...c.toObject(),
+        isPaid:       log?.isPaid || false,
+        actualAmount: log?.isPaid ? (log.actualAmount || c.amount) : 0,
+        paidOn:       log?.paidOn,
+        statusInfo:   getCommitmentStatusForMonth(c, log, month, year),
+      };
+    });
+
+    // Paid amount = sum of what was ACTUALLY PAID this month
+    const totalPaid    = enriched.filter(c => c.isPaid).reduce((s, c) => s + c.actualAmount, 0);
+    // Unpaid amount = sum of what is STILL OWED this month
+    const totalUnpaid  = enriched.filter(c => !c.isPaid).reduce((s, c) => s + c.amount, 0);
+    // Total expected = sum of all commitment amounts (what you OWE each month)
+    const totalExpected = commitments.reduce((s, c) => s + c.amount, 0);
+
+    // Account balance
+    const accounts    = await Account.find({ userId, isActive: true });
+    const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+
+    // Variable spending this month (excluding commitment payments)
+    const startOfMonth = new Date(year, month - 1, 1);
+    const endOfMonth   = new Date(year, month, 0, 23, 59, 59);
+    const varSpendResult = await Transaction.aggregate([
+      { $match: {
+        userId,
+        date: { $gte: startOfMonth, $lte: endOfMonth },
+        isCommitmentPayment: { $ne: true },
+        isGuiltyFreeSpend:   { $ne: true },
+        isATMWithdrawal:     { $ne: true },
+      }},
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const variableSpending = varSpendResult[0]?.total || 0;
+
+    const guiltyFreeResult = await Transaction.aggregate([
+      { $match: { userId, date: { $gte: startOfMonth, $lte: endOfMonth }, isGuiltyFreeSpend: true } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    const guiltyFreeUsed = guiltyFreeResult[0]?.total || 0;
+
+    // CORRECT WATERFALL:
+    // Account Balance
+    // − Bills Paid This Month (actual paid)
+    // − Variable Spending
+    // = Remaining
+    // − Unpaid Bills (still owed)
+    // = Safe to Spend
+
+    const afterBillsPaid = totalBalance - totalPaid;
+    const afterVarible   = afterBillsPaid - variableSpending;
+    const safeToSpend    = afterVarible - totalUnpaid;
+
+    res.json({
+      success: true,
+      data: {
+        month, year,
+        totalBalance,
+        totalPaid,        // what you've actually paid in bills this month
+        totalUnpaid,      // what you still owe in bills this month
+        totalExpected,    // what you OWE total per month (all commitments)
+        variableSpending,
+        guiltyFreeUsed,
+        afterBillsPaid,
+        afterVarible,
+        safeToSpend,
+        commitmentsPaidCount: enriched.filter(c => c.isPaid).length,
+        commitmentsTotal: commitments.length,
+        allCommitments: enriched,
+      }
+    });
   } catch (err) { next(err); }
 };
 
