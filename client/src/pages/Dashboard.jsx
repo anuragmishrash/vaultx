@@ -918,7 +918,7 @@ export default function Dashboard() {
                         labelFormatter={(month) => `${month}`}
                         cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                       />
-                      <Bar dataKey="amount" fill="#f59e0b" radius={[4,4,0,0]} isAnimationActive={true} />
+                      <Bar dataKey="amount" fill="#f59e0b" radius={[4,4,0,0]} isAnimationActive={!isMobile} />
                     </BarChart>
                   ) : (
                     <ComposedChart data={chartData}>
@@ -945,8 +945,8 @@ export default function Dashboard() {
                         }}
                         labelFormatter={(day) => `Day ${day}`}
                       />
-                      <Area type="monotone" dataKey="cumulative" connectNulls={false} name="Spent" stroke="#f59e0b" fill="url(#spendGradient)" strokeWidth={2} dot={false} isAnimationActive={true} />
-                      <Line type="monotone" dataKey="projected" name="Projected" stroke="#f59e0b" strokeDasharray="4 4" fill="none" strokeWidth={1.5} dot={false} isAnimationActive={true} connectNulls={false} />
+                      <Area type="monotone" dataKey="cumulative" connectNulls={false} name="Spent" stroke="#f59e0b" fill="url(#spendGradient)" strokeWidth={2} dot={false} isAnimationActive={!isMobile} />
+                      <Line type="monotone" dataKey="projected" name="Projected" stroke="#f59e0b" strokeDasharray="4 4" fill="none" strokeWidth={1.5} dot={false} isAnimationActive={!isMobile} connectNulls={false} />
                     </ComposedChart>
                   )}
                 </ResponsiveContainer>

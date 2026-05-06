@@ -716,7 +716,12 @@ select.glass-input {
 /* ─── MOBILE TOUCH TARGETS ─── */
 @media (max-width: 768px) {
   /* All interactive elements minimum 44px touch target */
-  button, a, [role="button"] { min-height: 44px; min-width: 44px; }
+  button, a, [role="button"] { 
+    min-height: 44px; 
+    min-width: 44px; 
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
 
   /* Override for small inline buttons — keep visual size, expand touch area */
   .touch-sm {
@@ -764,3 +769,21 @@ select.glass-input {
   .txn-card-mobile.okay::before     { background: #F5A623; }
   .txn-card-mobile.pending::before  { background: rgba(255,255,255,0.15); }
 }
+
+/* ─── PERFORMANCE & UX ─── */
+/* Hide scrollbar on all pill rows */
+.pill-row::-webkit-scrollbar { display: none; }
+.pill-row { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* GPU accelerate heavy elements */
+.gc, .clay-card, .clay-amber, .clay-teal, .clay-purple, .clay-red {
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* For Framer Motion animated elements */
+[data-framer-motion] {
+  will-change: transform, opacity;
+}
+

@@ -229,14 +229,41 @@ export default function Transactions() {
         </div>
 
         {/* Quick Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0 hide-scrollbar">
+        <div className="pill-row" style={{
+          display: 'flex',
+          gap: '8px',
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          scrollbarWidth: 'none',
+          WebkitOverflowScrolling: 'touch',
+          padding: '4px 2px 8px',
+          marginBottom: '8px',
+          flexWrap: 'nowrap',
+        }}>
           {['All', 'UPI', 'Card', 'Cash', 'ATM Withdrawal'].map(tab => {
             const isActive = tab === 'All' ? !filters.paymentMode : filters.paymentMode === tab;
             return (
               <button
                 key={tab}
                 onClick={() => setFilters(f => ({ ...f, paymentMode: tab === 'All' ? '' : tab }))}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${isActive ? 'bg-[rgba(245,166,35,0.12)] text-vault-amber border border-vault-amber/30' : 'bg-white/03 border border-white/08 text-vault-text-secondary hover:text-vault-text-primary'}`}
+                style={{
+                  flexShrink: 0,
+                  padding: '8px 16px',
+                  borderRadius: '100px',
+                  fontFamily: 'Inter',
+                  fontSize: '13px',
+                  fontWeight: isActive ? 600 : 400,
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  background: isActive
+                    ? 'linear-gradient(135deg,rgba(245,166,35,0.2),rgba(245,166,35,0.08))'
+                    : 'rgba(255,255,255,0.05)',
+                  border: isActive
+                    ? '0.5px solid rgba(245,166,35,0.4)'
+                    : '0.5px solid rgba(255,255,255,0.1)',
+                  color: isActive ? '#F5A623' : '#9295A8',
+                  minHeight: '36px',
+                }}
               >
                 {tab}
               </button>
@@ -245,15 +272,38 @@ export default function Transactions() {
         </div>
 
         {/* Month filter tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 hide-scrollbar">
+        <div className="pill-row" style={{
+          display: 'flex',
+          gap: '6px',
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          scrollbarWidth: 'none',
+          WebkitOverflowScrolling: 'touch',
+          padding: '2px 2px 10px',
+          flexWrap: 'nowrap',
+          marginBottom: '4px',
+        }}>
           {MONTH_FILTERS.map(f => (
             <button key={f.value}
               onClick={() => applyMonthFilter(f.value)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all border ${
-                activeMonthFilter === f.value
-                  ? 'bg-[rgba(155,138,251,0.12)] text-[#9B8AFB] border-[rgba(155,138,251,0.3)]'
-                  : 'bg-white/03 border-white/08 text-vault-text-muted hover:text-vault-text-secondary'
-              }`}>
+              style={{
+                flexShrink: 0,
+                padding: '7px 14px',
+                borderRadius: '100px',
+                fontFamily: 'Inter',
+                fontSize: '13px',
+                fontWeight: activeMonthFilter === f.value ? 600 : 400,
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+                background: activeMonthFilter === f.value
+                  ? 'rgba(139,122,255,0.15)'
+                  : 'rgba(255,255,255,0.04)',
+                border: activeMonthFilter === f.value
+                  ? '0.5px solid rgba(139,122,255,0.35)'
+                  : '0.5px solid rgba(255,255,255,0.08)',
+                color: activeMonthFilter === f.value ? '#9B8AFB' : '#9295A8',
+                minHeight: '36px',
+              }}>
               {f.label}
             </button>
           ))}

@@ -51,3 +51,37 @@ export const fabLabel = {
   initial: { opacity: 0, x: 10, scale: 0.9 },
   animate: { opacity: 1, x: 0,  scale: 1, transition: { duration: 0.2 } }
 };
+
+import { useIsMobile } from '../hooks/useMediaQuery';
+
+// Use simple animations on mobile to save GPU
+export const usePageTransition = () => {
+  const isMobile = useIsMobile();
+  if (isMobile) {
+    return {
+      initial:   { opacity: 0 },
+      animate:   { opacity: 1, transition: { duration: 0.2 } },
+      exit:      { opacity: 0, transition: { duration: 0.15 } },
+    };
+  }
+  return {
+    initial:   { opacity: 0, y: 18, filter: 'blur(4px)' },
+    animate:   { opacity: 1, y: 0,  filter: 'blur(0px)', transition: { duration: 0.38, ease: [0.16,1,0.3,1] } },
+    exit:      { opacity: 0, y: -10, transition: { duration: 0.18 } },
+  };
+};
+
+export const useCardVariants = () => {
+  const isMobile = useIsMobile();
+  if (isMobile) {
+    // Simpler stagger on mobile — less animation overhead
+    return {
+      container: { animate: { transition: { staggerChildren: 0.04 } } },
+      item:      { initial:{opacity:0}, animate:{opacity:1,transition:{duration:0.2}} },
+    };
+  }
+  return {
+    container: { animate: { transition: { staggerChildren: 0.07, delayChildren: 0.1 } } },
+    item:      { initial:{opacity:0,y:14,scale:0.98}, animate:{opacity:1,y:0,scale:1,transition:{duration:0.35,ease:[0.16,1,0.3,1]}} },
+  };
+};

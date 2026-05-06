@@ -11,6 +11,7 @@ import Navbar from './components/layout/Navbar';
 import AddTransactionModal from './components/features/AddTransactionModal';
 import { CardSkeleton } from './components/ui/Skeleton';
 import axios from 'axios';
+import { usePageTransition } from './utils/animations';
 
 const Landing = lazy(() => import('./pages/Landing'));
 const Login = lazy(() => import('./pages/Auth/Login'));
@@ -31,7 +32,14 @@ const MyMoney = lazy(() => import('./pages/MyMoney'));
 const CashTracker = lazy(() => import('./pages/CashTracker'));
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30000 } },
+  defaultOptions: {
+    queries: {
+      staleTime: 60 * 1000,
+      gcTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
 });
 
 // ── Silently restore access token from httpOnly refresh cookie on page load ──
@@ -88,6 +96,7 @@ function ProtectedLayout() {
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   const location = useLocation();
+  const pageTransition = usePageTransition();
 
   // Sidebar width: mobile=0, tablet=64 (icon-only), desktop=64 or 240
   const marginLeft = isMobile ? 0 : isTablet ? 64 : (sidebarCollapsed ? 64 : 240);
@@ -112,8 +121,7 @@ function ProtectedLayout() {
             }>
               <motion.div
                 key={location.pathname}
-                initial={{ opacity: 0, y: 18, filter: 'blur(4px)' }}
-                animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.38, ease: [0.16,1,0.3,1] } }}
+                {...pageTransition}
               >
                 <Outlet />
               </motion.div>

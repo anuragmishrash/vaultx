@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Pencil, Trash2, RotateCcw } from 'lucide-react';
 import { useIsMobile } from '../../hooks/useMediaQuery';
@@ -12,44 +12,9 @@ const REGRET_CONFIG = {
   regret:   { label: '✗ Regret', bg: 'rgba(255,92,92,0.15)',  border: 'rgba(255,92,92,0.35)',  color: '#FF5C5C' },
 };
 
-function SwipeableCard({ onDelete, onRepeat, children }) {
-  const [swipeX, setSwipeX] = useState(0);
-  const startX = useRef(0);
-  const THRESHOLD = 80;
+import SwipeableCard from './SwipeableCard';
 
-  const handleTouchStart = e => { startX.current = e.touches[0].clientX; };
-  const handleTouchMove  = e => {
-    const dx = e.touches[0].clientX - startX.current;
-    setSwipeX(Math.max(-120, Math.min(60, dx)));
-  };
-  const handleTouchEnd = () => {
-    if (swipeX < -THRESHOLD) { if (onDelete) onDelete(); }
-    else if (swipeX > THRESHOLD) { if (onRepeat) onRepeat(); }
-    setSwipeX(0);
-  };
-
-  return (
-    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: '16px', marginBottom: '10px' }}>
-      {/* Background actions */}
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px' }}>
-        <div style={{ color: '#9B8AFB', fontFamily: 'Inter', fontSize: '12px', fontWeight: 600 }}>↺ Repeat</div>
-        <div style={{ color: '#FF5C5C', fontFamily: 'Inter', fontSize: '12px', fontWeight: 600 }}>Delete ✕</div>
-      </div>
-      {/* Card — translates on swipe */}
-      <motion.div
-        style={{ x: swipeX, position: 'relative', zIndex: 1 }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        animate={{ x: swipeX }}
-        transition={{ type: 'spring', stiffness: 500, damping: 40 }}>
-        {children}
-      </motion.div>
-    </div>
-  );
-}
-
-export default function TransactionRow({
+const TransactionRow = memo(function TransactionRow({
   transaction,
   onEdit,
   onDelete,
@@ -76,136 +41,179 @@ export default function TransactionRow({
   if (isMobile) {
     return (
       <SwipeableCard onDelete={() => onDelete?.(transaction._id)} onRepeat={() => onRepeat?.(transaction)}>
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`txn-card-mobile ${transaction.regretStatus || 'pending'}`}
-          style={{ position: 'relative', marginBottom: 0 }}
-        >
-          {/* Row 1: Icon + Title + Amount */}
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '8px' }}>
+        <div style={{
+          background: 'rgba(255,255,255,0.035)',
+          border: '0.5px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
+          padding: '14px 14px 12px',
+          marginBottom: '10px',
+          position: 'relative',
+          overflow: 'hidden',
+          // Left border accent by regret status
+          borderLeft: `3px solid ${
+            transaction.regretStatus === 'worth_it' ? '#00C9A7' :
+            transaction.regretStatus === 'regret'   ? '#FF5C5C' :
+            transaction.regretStatus === 'okay'     ? '#F5A623' :
+            'rgba(255,255,255,0.12)'
+          }`,
+        }}>
+
+          {/* ── ZONE 1: Top row — Icon + Title + Amount ── */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '10px',
+            marginBottom: '10px',
+          }}>
             {/* Category icon */}
             <div style={{
-              width: '38px', height: '38px', borderRadius: '10px',
+              width: '36px', height: '36px', borderRadius: '10px',
               background: bg, display: 'flex', alignItems: 'center',
               justifyContent: 'center', flexShrink: 0,
             }}>
-              <Icon size={17} color={color} />
+              <Icon size={16} color={color} />
             </div>
 
-            {/* Title + meta */}
-            <div style={{ flex: 1, minWidth: 0 }}>
+            {/* Title + date + meta — takes all remaining space */}
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
               <p style={{
                 fontFamily: 'Outfit', fontWeight: 600, fontSize: '15px',
-                color: '#EAEDF5', margin: '0 0 3px',
-                wordBreak: 'break-word', lineHeight: 1.3,
+                color: '#EAEDF5', margin: '0 0 2px',
+                // Full title, never truncate on mobile
+                whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.25,
               }}>
                 {transaction.title}
               </p>
-              <p style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8', margin: 0 }}>
+              <p style={{
+                fontFamily: 'Inter', fontSize: '12px', color: '#9295A8',
+                margin: '0 0 2px',
+              }}>
                 {new Date(transaction.date).toLocaleDateString('en-IN', {
-                  day: 'numeric', month: 'short', year: 'numeric'
+                  day: 'numeric', month: 'short', year: 'numeric',
                 })}
                 {' · '}{transaction.paymentMode}
               </p>
-              {(timeCost || futureVal) && (
-                <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: '3px 0 0' }}>
-                  {timeCost && <span>{timeCost} of work</span>}
-                  {timeCost && futureVal && <span> · </span>}
-                  {futureVal && <span>{futureVal}</span>}
+              {/* Time cost — only if meaningful */}
+              {timeCost && (
+                <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
+                  {timeCost} of work{futureVal ? ` · ${futureVal}` : ''}
                 </p>
               )}
             </div>
 
-            {/* Amount */}
-            <div style={{ flexShrink: 0, textAlign: 'right' }}>
+            {/* Amount — fixed width, right-aligned, never pushed off screen */}
+            <div style={{ flexShrink: 0, textAlign: 'right', minWidth: '60px' }}>
               <p style={{
                 fontFamily: 'Outfit', fontWeight: 700, fontSize: '17px',
-                color: '#EAEDF5', margin: 0,
+                color: '#EAEDF5', margin: '0 0 4px',
               }}>
                 ₹{transaction.amount?.toLocaleString('en-IN')}
               </p>
-              {transaction.isGuiltyFreeSpend && (
-                <span style={{ fontSize: '10px', background: 'rgba(0,201,167,0.12)', color: '#00C9A7', padding: '2px 7px', borderRadius: '100px', fontFamily: 'Inter', fontWeight: 600 }}>
+              {/* Type badge — only one badge, never stacked */}
+              {transaction.isGuiltyFreeSpend ? (
+                <span style={{
+                  display: 'inline-block', fontSize: '10px', fontFamily: 'Inter',
+                  fontWeight: 600, padding: '2px 8px', borderRadius: '100px',
+                  background: 'rgba(0,201,167,0.12)', color: '#00C9A7',
+                  border: '0.5px solid rgba(0,201,167,0.25)',
+                  whiteSpace: 'nowrap',
+                }}>
                   Guilt-Free
                 </span>
-              )}
-              {transaction.isCommitmentPayment && (
-                <span style={{ fontSize: '10px', background: 'rgba(78,159,255,0.12)', color: '#5BA4F5', padding: '2px 7px', borderRadius: '100px', fontFamily: 'Inter', fontWeight: 600 }}>
-                  Bill
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Row 2: Regret status + Action buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '4px' }}>
-            <div style={{ flex: 1 }}>
-              {showRegretButtons ? (
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {['worth_it', 'okay', 'regret'].map(r => (
-                    <button key={r}
-                      onClick={() => onRate(transaction._id, r)}
-                      style={{
-                        padding: '6px 10px', borderRadius: '8px',
-                        fontFamily: 'Inter', fontSize: '12px', fontWeight: 500,
-                        background: REGRET_CONFIG[r].bg, border: `0.5px solid ${REGRET_CONFIG[r].border}`,
-                        color: REGRET_CONFIG[r].color, cursor: 'pointer', minHeight: '36px',
-                      }}>
-                      {r === 'worth_it' ? '✓' : r === 'okay' ? '~' : '✗'}
-                    </button>
-                  ))}
-                  <span style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', alignSelf: 'center' }}>Rate it</span>
-                </div>
-              ) : regretCfg ? (
+              ) : transaction.isCommitmentPayment ? (
                 <span style={{
-                  display: 'inline-block', padding: '5px 12px', borderRadius: '100px',
-                  background: regretCfg.bg, border: `0.5px solid ${regretCfg.border}`,
-                  color: regretCfg.color, fontFamily: 'Inter', fontSize: '12px', fontWeight: 600,
+                  display: 'inline-block', fontSize: '10px', fontFamily: 'Inter',
+                  fontWeight: 600, padding: '2px 8px', borderRadius: '100px',
+                  background: 'rgba(78,159,255,0.12)', color: '#5BA4F5',
+                  border: '0.5px solid rgba(78,159,255,0.25)',
+                  whiteSpace: 'nowrap',
                 }}>
-                  {regretCfg.label}
+                  Bill
                 </span>
               ) : null}
             </div>
+          </div>
 
-            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-              {!new Date(transaction.date).toDateString() === new Date().toDateString() && (
-                <button
-                  onClick={() => onRepeat?.(transaction)}
-                  className="touch-sm"
-                  style={{
-                    background: alreadyAddedToday ? 'rgba(0,201,167,0.1)' : 'rgba(255,255,255,0.06)',
-                    border: `0.5px solid ${alreadyAddedToday ? 'rgba(0,201,167,0.3)' : 'rgba(255,255,255,0.1)'}`,
-                    borderRadius: '8px', padding: '8px', cursor: 'pointer',
-                    color: alreadyAddedToday ? '#00C9A7' : '#9295A8',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                  {alreadyAddedToday ? <span style={{ fontSize: '10px', fontWeight: 600 }}>✓</span> : <RotateCcw size={14} />}
-                </button>
+          {/* Divider */}
+          <div style={{ height: '0.5px', background: 'rgba(255,255,255,0.06)', marginBottom: '10px' }} />
+
+          {/* ── ZONE 2: Bottom row — Regret status + Actions ── */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+          }}>
+            {/* Left: regret badge or rate buttons */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {showRegretButtons ? (
+                // Pending: show 3 rating buttons
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button onClick={() => onRate(transaction._id, 'worth_it')}
+                    style={{ padding: '7px 12px', borderRadius: '8px', fontFamily: 'Inter', fontSize: '12px', fontWeight: 600, background: 'rgba(0,201,167,0.12)', border: '0.5px solid rgba(0,201,167,0.3)', color: '#00C9A7', cursor: 'pointer', minHeight: '34px' }}>
+                    ✓ Worth
+                  </button>
+                  <button onClick={() => onRate(transaction._id, 'okay')}
+                    style={{ padding: '7px 10px', borderRadius: '8px', fontFamily: 'Inter', fontSize: '12px', fontWeight: 600, background: 'rgba(245,166,35,0.1)', border: '0.5px solid rgba(245,166,35,0.3)', color: '#F5A623', cursor: 'pointer', minHeight: '34px' }}>
+                    ~ Ok
+                  </button>
+                  <button onClick={() => onRate(transaction._id, 'regret')}
+                    style={{ padding: '7px 10px', borderRadius: '8px', fontFamily: 'Inter', fontSize: '12px', fontWeight: 600, background: 'rgba(255,92,92,0.1)', border: '0.5px solid rgba(255,92,92,0.3)', color: '#FF5C5C', cursor: 'pointer', minHeight: '34px' }}>
+                    ✗ Reg
+                  </button>
+                </div>
+              ) : (
+                // Already rated: show badge
+                <span style={{
+                  display: 'inline-block', padding: '6px 14px', borderRadius: '100px',
+                  background: REGRET_CONFIG[transaction.regretStatus]?.bg || 'transparent',
+                  border: `0.5px solid ${REGRET_CONFIG[transaction.regretStatus]?.border || 'transparent'}`,
+                  color: REGRET_CONFIG[transaction.regretStatus]?.color || '#9295A8',
+                  fontFamily: 'Inter', fontSize: '12px', fontWeight: 600,
+                }}>
+                  {REGRET_CONFIG[transaction.regretStatus]?.label || ''}
+                </span>
               )}
-              <button
-                onClick={() => onEdit?.(transaction)}
-                className="touch-sm"
+            </div>
+
+            {/* Right: 3 icon action buttons — fixed, never overlap */}
+            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+              {/* Repeat */}
+              <button onClick={() => onRepeat?.(transaction)}
                 style={{
+                  width: '34px', height: '34px', borderRadius: '9px',
                   background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.1)',
-                  borderRadius: '8px', padding: '8px', cursor: 'pointer', color: '#9295A8',
+                  cursor: 'pointer', color: '#9295A8',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '15px', flexShrink: 0,
+                }}>
+                ↺
+              </button>
+              {/* Edit */}
+              <button onClick={() => onEdit?.(transaction)}
+                style={{
+                  width: '34px', height: '34px', borderRadius: '9px',
+                  background: 'rgba(255,255,255,0.06)', border: '0.5px solid rgba(255,255,255,0.1)',
+                  cursor: 'pointer', color: '#9295A8',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
                 }}>
                 <Pencil size={14} />
               </button>
-              <button
-                onClick={() => onDelete?.(transaction._id)}
-                className="touch-sm"
+              {/* Delete */}
+              <button onClick={() => onDelete?.(transaction._id)}
                 style={{
+                  width: '34px', height: '34px', borderRadius: '9px',
                   background: 'rgba(255,92,92,0.08)', border: '0.5px solid rgba(255,92,92,0.2)',
-                  borderRadius: '8px', padding: '8px', cursor: 'pointer', color: '#FF5C5C',
+                  cursor: 'pointer', color: '#FF5C5C',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
                 }}>
                 <Trash2 size={14} />
               </button>
             </div>
           </div>
-        </motion.div>
+        </div>
       </SwipeableCard>
     );
   }
@@ -282,4 +290,11 @@ export default function TransactionRow({
       </div>
     </motion.div>
   );
-}
+}, (prevProps, nextProps) => {
+  return prevProps.transaction._id === nextProps.transaction._id &&
+         prevProps.transaction.regretStatus === nextProps.transaction.regretStatus &&
+         prevProps.transaction.amount === nextProps.transaction.amount &&
+         prevProps.isSelected === nextProps.isSelected;
+});
+
+export default TransactionRow;
