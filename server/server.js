@@ -47,7 +47,7 @@ app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/dna', require('./routes/dna'));
 app.use('/api/zeroday', require('./routes/zeroday'));
 app.use('/api/commitments', require('./routes/commitments'));
-app.use('/api/buckets', require('./routes/buckets'));
+app.use('/api/accounts', require('./routes/accounts'));
 app.use('/api/cash', require('./routes/cash'));
 app.use('/api/patterns', require('./routes/patterns'));
 app.use('/api/income', require('./routes/income'));

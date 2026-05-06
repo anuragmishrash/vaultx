@@ -15,24 +15,10 @@ const getDashboard = async (req, res, next) => {
     const currentMonth = now.getMonth() + 1;
     const currentYear  = now.getFullYear();
 
-    // BUG 4: Auto-carry spending pool to current month on first dashboard load
-    if (
-      user.moneyMode === 'pool' &&
-      user.spendingPool > 0 &&
-      (user.spendingPoolMonth !== currentMonth || user.spendingPoolYear !== currentYear)
-    ) {
-      await User.findByIdAndUpdate(user._id, {
-        spendingPoolMonth: currentMonth,
-        spendingPoolYear: currentYear,
-      });
-      user.spendingPoolMonth = currentMonth;
-      user.spendingPoolYear  = currentYear;
-    }
-
-    // BUG 5: Exclude future-dated transactions from spending totals
+    // Exclude future-dated transactions from spending totals
     const txns = await Transaction.find({
       userId: user._id,
-      date:   { $gte: start, $lte: today }, // cap at today, not end of month
+      date:   { $gte: start, $lte: today },
     });
     // ATM withdrawals are cash transfers, not actual spending
     const spendTxns = txns.filter(t => !t.isATMWithdrawal);
@@ -47,7 +33,7 @@ const getDashboard = async (req, res, next) => {
     const regretCount = rated.filter(t => t.regretStatus === 'regret').length;
     const regretScore = rated.length > 0 ? Math.round((regretCount / rated.length) * 100) : 0;
 
-    // Regret breakdown for Feature 5
+    // Regret breakdown
     const regretBreakdown = {
       regret:   { count: 0, total: 0 },
       okay:     { count: 0, total: 0 },
@@ -85,18 +71,16 @@ const getDashboard = async (req, res, next) => {
       }
     }
 
-    // BUG 1: Smart forecast — suppress on day 1, blend last-month on days 2–4
+    // Smart forecast
     let forecastTotal = 0;
     let forecastConfidence = 'high';
     let forecastMessage = null;
 
     if (dayOfMonth === 1) {
-      // Day 1: no forecast — too early
       forecastTotal = null;
       forecastConfidence = 'none';
       forecastMessage = 'new_month';
     } else if (dayOfMonth < 5) {
-      // Days 2–4: blend with last month's daily average
       const lastMonth = currentMonth === 1 ? 12 : currentMonth - 1;
       const lastYear  = currentMonth === 1 ? currentYear - 1 : currentYear;
       const lmStart   = new Date(lastYear, lastMonth - 1, 1);
@@ -112,7 +96,6 @@ const getDashboard = async (req, res, next) => {
       forecastConfidence = 'low';
       forecastMessage    = 'early_estimate';
     } else {
-      // Day 5+: normal extrapolation from current month
       const avgPerDay = totalSpent / dayOfMonth;
       forecastTotal   = Math.round(avgPerDay * daysInMonth);
       forecastConfidence = dayOfMonth >= 15 ? 'high' : 'medium';
@@ -132,6 +115,28 @@ const getDashboard = async (req, res, next) => {
     if (streak !== user.zeroDayStreak) {
       await User.findByIdAndUpdate(user._id, { zeroDayStreak: streak });
     }
+
+    // ── Account-based Safe to Spend ─────────────────────────────────────────
+    const Account = require('../models/Account');
+    const Commitment = require('../models/Commitment');
+    const CommitmentLog = require('../models/CommitmentLog');
+
+    const accounts = await Account.find({ userId: user._id, isActive: true });
+    const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+    const hasAccounts = accounts.length > 0;
+
+    // Unpaid commitments this month
+    const allCommitments = await Commitment.find({ userId: user._id, isActive: true });
+    const paidLogs = await CommitmentLog.find({
+      userId: user._id,
+      month: currentMonth, year: currentYear, isPaid: true,
+    });
+    const paidIds = new Set(paidLogs.map(l => l.commitmentId?.toString()));
+    const unpaidCommitments = allCommitments
+      .filter(c => !paidIds.has(c._id.toString()))
+      .reduce((s, c) => s + c.amount, 0);
+
+    const safeToSpend = totalBalance - unpaidCommitments;
 
     res.json({
       success: true,
@@ -160,9 +165,23 @@ const getDashboard = async (req, res, next) => {
       pendingRegret: pendingRegret.map(t => ({ id: t._id, title: t.title, amount: t.amount, date: t.date, category: t.category })),
       recentTransactions: txns.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10),
       regretBreakdown,
+      // Account-based fields
+      totalBalance,
+      safeToSpend,
+      unpaidCommitments,
+      hasAccounts,
+      accounts: accounts.map(a => ({
+        _id:       a._id,
+        name:      a.name,
+        type:      a.type,
+        balance:   a.balance,
+        isDefault: a.isDefault,
+        color:     a.color,
+      })),
     });
   } catch (err) { next(err); }
 };
+
 
 const getMonthly = async (req, res, next) => {
   try {
@@ -306,85 +325,78 @@ const getVariableSpend = async (userId, period, startDate, endDate) => {
 const getTfm = async (req, res, next) => {
   try {
     const { period } = req.query; // 'this_month', 'last_month', '3_months', 'all_time'
-    const User = require('../models/User');
-    const Commitment = require('../models/Commitment');
-    const Transaction = require('../models/Transaction');
-
-    const user = await User.findById(req.user._id);
-    const basePool = user.moneyMode === 'pool' && user.spendingPool > 0 
-      ? user.spendingPool 
-      : user.monthlySalary || 0;
+    const Account     = require('../models/Account');
+    const Commitment  = require('../models/Commitment');
+    const CommitmentLog = require('../models/CommitmentLog');
 
     const now = new Date();
     let startDate, endDate, numberOfMonths;
 
     if (period === 'last_month') {
       startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      endDate   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
       numberOfMonths = 1;
     } else if (period === '3_months') {
       startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999); // last day of current month
+      endDate   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
       numberOfMonths = 3;
     } else if (period === 'all_time') {
-      startDate = user.createdAt || new Date(now.getFullYear() - 1, now.getMonth(), 1); 
-      endDate = null; // No end date for all time
-      const diffTime = Math.abs(new Date() - startDate);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const user = await User.findById(req.user._id);
+      startDate = user.createdAt || new Date(now.getFullYear() - 1, now.getMonth(), 1);
+      endDate   = null;
+      const diffDays = Math.ceil(Math.abs(new Date() - startDate) / (1000 * 60 * 60 * 24));
       numberOfMonths = Math.max(1, Math.round(diffDays / 30));
     } else {
       // this_month (default)
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999); // last day of current month
+      endDate   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
       numberOfMonths = 1;
     }
 
-    const pool = basePool * numberOfMonths;
-    let actualIncomeThisMonth = null; // null means "not applicable"
-    let isCarryForward = false;
-    let carryForwardAmount = 0;
+    // ── New formula: Total Account Balance − Unpaid Commitments ────────────
+    const accounts = await Account.find({ userId: req.user._id, isActive: true });
+    const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+    const hasAccounts  = accounts.length > 0;
 
-    if (period === 'this_month' || !period) {
-      const IncomeEntry = require('../models/IncomeEntry');
-      const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const incomeEntries = await IncomeEntry.find({ userId: req.user._id, month: currentMonthStr });
-      actualIncomeThisMonth = incomeEntries.reduce((sum, e) => sum + e.amount, 0);
+    const currentMonth = now.getMonth() + 1;
+    const currentYear  = now.getFullYear();
 
-      if (actualIncomeThisMonth === 0) {
-        // Step 2b: Calculate last month's True Free Money as carry-forward
-        const lmStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const lmEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-        const lmCommitments = await getPaidCommitmentsTotal(req.user._id, 'last_month', lmStart, lmEnd, 1);
-        const lmSpend = await getVariableSpend(req.user._id, 'last_month', lmStart, lmEnd);
-        const lmTrueFree = basePool - lmCommitments - lmSpend;
-
-        isCarryForward = true;
-        // Step 5: If lastMonthTrueFree calculation returns 0 or negative, fall back to monthlyPoolSetting
-        carryForwardAmount = lmTrueFree > 0 ? lmTrueFree : basePool;
-      }
-    }
-
-    const effectivePool = (period === 'this_month' || !period) 
-      ? (isCarryForward ? carryForwardAmount : actualIncomeThisMonth) 
-      : pool;
+    const allCommitments = await Commitment.find({ userId: req.user._id, isActive: true });
+    const paidLogs = await CommitmentLog.find({
+      userId: req.user._id,
+      month: currentMonth, year: currentYear, isPaid: true,
+    });
+    const paidIds = new Set(paidLogs.map(l => l.commitmentId?.toString()));
+    const unpaidTotal = allCommitments
+      .filter(c => !paidIds.has(c._id.toString()))
+      .reduce((s, c) => s + c.amount, 0);
 
     const commitmentsTotal = await getPaidCommitmentsTotal(req.user._id, period, startDate, endDate, numberOfMonths);
-    const variableSpend = await getVariableSpend(req.user._id, period, startDate, endDate);
+    const variableSpend    = await getVariableSpend(req.user._id, period, startDate, endDate);
 
-    const trueFreeMoney = effectivePool - commitmentsTotal - variableSpend;
+    // Safe to Spend = total balance − unpaid commitments
+    const safeToSpend   = totalBalance - unpaidTotal;
+    // True Free Money = Safe to Spend − variable spending in selected period
+    const trueFreeMoney = safeToSpend - variableSpend;
 
     res.json({
       success: true,
-      pool: effectivePool,
-      budgetPool: pool,
-      actualIncome: actualIncomeThisMonth,
-      isCarryForward,
-      carryForwardAmount,
+      // Account-based fields (new)
+      totalBalance,
+      hasAccounts,
+      safeToSpend,
+      unpaidCommitments: unpaidTotal,
+      // Period-specific breakdowns
       commitmentsTotal,
       variableSpend,
       trueFreeMoney,
       period,
-      numberOfMonths
+      numberOfMonths,
+      // Legacy fields kept for backwards compat with any frontend references
+      pool: totalBalance,
+      actualIncome: null,
+      isCarryForward: false,
+      carryForwardAmount: 0,
     });
   } catch (err) { next(err); }
 };

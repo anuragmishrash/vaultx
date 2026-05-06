@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  Menu, Plus,
+  Menu, Plus, Wallet,
   LayoutDashboard, ArrowLeftRight, Banknote, Landmark,
   Heart, Brain, Ghost, TrendingUp, Dna, Zap, Shield, BarChart3, Settings,
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore, useUIStore } from '../../store/authStore';
 
 const ALL_NAV_ITEMS = [
+  { path: '/my-money',       icon: Wallet,          label: 'My Money' },
   { path: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/transactions',   icon: ArrowLeftRight,  label: 'Transactions' },
   { path: '/cash-tracker',   icon: Banknote,        label: 'Cash Tracker' },

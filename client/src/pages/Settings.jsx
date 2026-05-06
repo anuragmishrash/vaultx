@@ -14,12 +14,12 @@ import { Settings as SettingsIcon, User, DollarSign, Bell, Palette, Database, Tr
 import toast from 'react-hot-toast';
 
 const SECTIONS = [
-  { id: 'profile', label: 'Profile', icon: User },
-  { id: 'mode', label: 'Money Mode', icon: Wallet },
-  { id: 'financial', label: 'Financial Setup', icon: DollarSign },
+  { id: 'profile',    label: 'Profile',         icon: User },
+  { id: 'accounts',  label: 'Bank Accounts',   icon: Wallet },
+  { id: 'financial', label: 'Financial Setup',  icon: DollarSign },
   { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'theme', label: 'Appearance', icon: Palette },
-  { id: 'data', label: 'Data & Privacy', icon: Database },
+  { id: 'theme',     label: 'Appearance',       icon: Palette },
+  { id: 'data',      label: 'Data & Privacy',   icon: Database },
 ];
 
 export default function Settings() {
@@ -27,8 +27,6 @@ export default function Settings() {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('profile');
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const [modeLoading, setModeLoading] = useState(null);
-  const [poolAmount, setPoolAmount] = useState(user?.spendingPool || '');
 
   const { register, handleSubmit, formState: { isDirty } } = useForm({ defaultValues: {
     name: user?.name || '',
@@ -54,36 +52,6 @@ export default function Settings() {
     authAPI.updateProfile(updated).then(({ data }) => updateUser(data.user));
   };
 
-  // ── Money Mode helpers ────────────────────────────────────────────
-  const switchMode = async (modeId) => {
-    if (modeLoading || user?.moneyMode === modeId) return;
-    setModeLoading(modeId);
-    try {
-      const { data } = await userAPI.setMoneyMode(modeId);
-      updateUser(data.user);
-      toast.success(`Switched to ${modeId === 'salary' ? 'Salary Mode' : modeId === 'pool' ? 'Spending Pool' : 'Full Wallet'}!`);
-    } catch {
-      toast.error('Failed to switch mode');
-    } finally {
-      setModeLoading(null);
-    }
-  };
-
-  const savePool = async () => {
-    const amount = parseFloat(poolAmount);
-    if (!amount || isNaN(amount) || amount <= 0) { toast.error('Enter a valid amount'); return; }
-    setModeLoading('pool-save');
-    try {
-      const now = new Date();
-      const { data } = await userAPI.setSpendingPool({ amount, month: now.getMonth() + 1, year: now.getFullYear() });
-      updateUser(data.user);
-      toast.success('Spending pool saved!');
-    } catch {
-      toast.error('Failed to save pool');
-    } finally {
-      setModeLoading(null);
-    }
-  };
 
   return (
     <MobilePage title="Settings">
@@ -135,123 +103,23 @@ export default function Settings() {
               </Card>
             )}
 
-            {activeSection === 'mode' && (
+            {activeSection === 'accounts' && (
               <Card>
-                <h2 className="font-display font-semibold text-vault-text-primary mb-2">How VAULT sees your money</h2>
-                <p className="text-sm text-vault-text-secondary mb-6">Choose how you want to track your finances. You can change this anytime.</p>
-
-                {/* Mode selector cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  {[
-                    {
-                      id: 'salary',
-                      icon: '💼',
-                      title: 'Salary Mode',
-                      desc: 'Use my monthly salary as the income base. Simple, private.',
-                    },
-                    {
-                      id: 'pool',
-                      icon: '🎯',
-                      title: 'Spending Pool',
-                      desc: 'I will declare what I have to spend each month. Private.',
-                    },
-                    {
-                      id: 'wallet',
-                      icon: '🏦',
-                      title: 'Full Wallet',
-                      desc: 'I will add my actual account balances for full insight.',
-                    },
-                  ].map((m) => {
-                    const isActive = (user?.moneyMode || 'salary') === m.id;
-                    const isLoading = modeLoading === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        disabled={!!modeLoading}
-                        onClick={() => switchMode(m.id)}
-                        className={`relative p-4 rounded-vault-md border text-left transition-all cursor-pointer
-                          ${isActive
-                            ? 'bg-[rgba(245,166,35,0.10)] border-vault-amber shadow-[0_0_16px_rgba(245,166,35,0.15)]'
-                            : 'bg-white/03 border-white/08 hover:border-white/20 hover:bg-white/05'
-                          }
-                          ${modeLoading && !isLoading ? 'opacity-50' : ''}
-                        `}
-                      >
-                        {isActive && (
-                          <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-vault-amber flex items-center justify-center">
-                            <Check size={11} className="text-black font-bold" strokeWidth={3} />
-                          </span>
-                        )}
-                        <div className="text-2xl mb-3">{m.icon}</div>
-                        <p className={`font-semibold mb-1 text-sm ${isActive ? 'text-vault-amber' : 'text-vault-text-primary'}`}>
-                          {isLoading ? 'Switching...' : m.title}
-                        </p>
-                        <p className="text-xs text-vault-text-muted leading-relaxed">{m.desc}</p>
-                        {isActive && (
-                          <div className="mt-3 text-[10px] font-bold text-vault-amber uppercase tracking-wide">
-                            ✓ Active
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
+                <h2 className="font-display font-semibold text-vault-text-primary mb-2">Bank Accounts</h2>
+                <p className="text-sm text-vault-text-secondary mb-4 leading-relaxed">
+                  Add your bank accounts, UPI wallets, and credit cards. VAULT will auto-deduct your spending from the chosen account and calculate your real Safe to Spend balance.
+                </p>
+                <div className="p-4 bg-[rgba(245,166,35,0.04)] rounded-vault-md border border-[rgba(245,166,35,0.2)] mb-4">
+                  <p className="text-sm font-medium text-vault-text-primary mb-1">How it works</p>
+                  <ul className="text-xs text-vault-text-muted space-y-1.5">
+                    <li>• Every transaction automatically deducts from the selected account</li>
+                    <li>• Deleting a transaction restores the balance</li>
+                    <li>• Safe to Spend = Account Balance − Unpaid Commitments</li>
+                  </ul>
                 </div>
-
-                {/* Spending Pool config — shown when pool mode is active */}
-                {(user?.moneyMode || 'salary') === 'pool' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-5 bg-[rgba(245,166,35,0.05)] rounded-vault-md border border-vault-amber/25 space-y-3"
-                  >
-                    <p className="text-sm font-semibold text-vault-text-primary">💰 Set your spending pool</p>
-                    <p className="text-xs text-vault-text-muted">
-                      This is private. Enter any amount — your salary, a portion of it, anything you're comfortable tracking against.
-                    </p>
-                    {user?.spendingPool > 0 && (
-                      <p className="text-xs text-vault-amber font-medium">
-                        Current pool: ₹{user.spendingPool.toLocaleString('en-IN')}
-                      </p>
-                    )}
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <input
-                          type="number"
-                          className="gi w-full"
-                          placeholder="e.g., 30000"
-                          value={poolAmount}
-                          onChange={(e) => setPoolAmount(e.target.value)}
-                          min="1"
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        loading={modeLoading === 'pool-save'}
-                        onClick={savePool}
-                      >
-                        Save Pool
-                      </Button>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Full Wallet config — shown when wallet mode is active */}
-                {(user?.moneyMode || 'salary') === 'wallet' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-5 bg-[rgba(78,159,255,0.05)] rounded-vault-md border border-[rgba(78,159,255,0.25)] space-y-3"
-                  >
-                    <p className="text-sm font-semibold text-vault-text-primary">🏦 Manage your money buckets</p>
-                    <p className="text-xs text-vault-text-muted">
-                      Add your bank accounts, savings, cash, and wallets. VAULT will use your real balances to calculate your true spending power and net worth.
-                    </p>
-                    <Button onClick={() => navigate('/my-money')}>
-                      Go to My Money →
-                    </Button>
-                  </motion.div>
-                )}
+                <Button onClick={() => navigate('/my-money')}>
+                  Manage Accounts →
+                </Button>
               </Card>
             )}
 

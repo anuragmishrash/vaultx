@@ -1,261 +1,436 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { bucketsAPI } from '../api';
+import { motion, AnimatePresence } from 'framer-motion';
+import { accountsAPI } from '../api';
 import { useAuthStore } from '../store/authStore';
 import PageWrapper from '../components/layout/PageWrapper';
+import MobilePage from '../components/layout/MobilePage';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
-import { CardSkeleton, ChartSkeleton } from '../components/ui/Skeleton';
-import { formatINR, formatCompact } from '../utils/formatCurrency';
-import { Wallet, TrendingUp, TrendingDown, AlertTriangle, ArrowRightLeft, RefreshCw, Building2, Banknote, Smartphone, Plus, Eye, EyeOff } from 'lucide-react';
+import { CardSkeleton } from '../components/ui/Skeleton';
+import { formatINR } from '../utils/formatCurrency';
+import {
+  Wallet, Plus, Eye, EyeOff, ArrowRightLeft, Building2,
+  Banknote, Smartphone, CreditCard, Star, Trash2, Pencil, RefreshCw,
+} from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
 
-const BUCKET_ICONS = { bank_account: Building2, cash: Banknote, upi_wallet: Smartphone, other: Wallet };
-const BUCKET_COLORS = ['#F5A623', '#00C896', '#4E9FFF', '#8B7CF6', '#FF5A5A', '#F06292'];
+const ACCOUNT_COLORS = ['#F5A623', '#00C9A7', '#4E9FFF', '#8B7CF6', '#FF5C5C', '#F06292'];
+const ACCOUNT_TYPES = [
+  { id: 'bank_account', label: 'Bank Account', icon: Building2, emoji: '🏦' },
+  { id: 'cash',         label: 'Cash',          icon: Banknote,  emoji: '💵' },
+  { id: 'upi_wallet',  label: 'UPI Wallet',    icon: Smartphone,emoji: '📱' },
+  { id: 'credit_card', label: 'Credit Card',   icon: CreditCard, emoji: '💳' },
+  { id: 'other',       label: 'Other',          icon: Wallet,    emoji: '💰' },
+];
+
+function getTypeEmoji(type) {
+  return ACCOUNT_TYPES.find(t => t.id === type)?.emoji || '💰';
+}
+function getTypeLabel(type) {
+  return ACCOUNT_TYPES.find(t => t.id === type)?.label || 'Account';
+}
 
 export default function MyMoney() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
-  const [addOpen, setAddOpen] = useState(false);
-  const [updateOpen, setUpdateOpen] = useState(null);
+  const [addOpen, setAddOpen]       = useState(false);
+  const [editOpen, setEditOpen]     = useState(null); // account object
+  const [balOpen, setBalOpen]       = useState(null); // account object
   const [transferOpen, setTransferOpen] = useState(false);
-  const [showBals, setShowBals] = useState(!user?.hideWalletBalance);
+  const [showBals, setShowBals]     = useState(!user?.hideWalletBalance);
 
-  const { data: nwData, isLoading } = useQuery({
-    queryKey: ['net-worth'],
-    queryFn: () => bucketsAPI.getNetWorth().then(r => r.data),
-  });
-  const { data: histData } = useQuery({
-    queryKey: ['net-worth-history'],
-    queryFn: () => bucketsAPI.getNetWorthHistory(6).then(r => r.data),
-  });
-  const { data: accData } = useQuery({
-    queryKey: ['savings-accuracy'],
-    queryFn: () => bucketsAPI.getSavingsAccuracy({}).then(r => r.data),
-  });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['accounts'] });
+    qc.invalidateQueries({ queryKey: ['accounts-summary'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
 
-  const createMut = useMutation({
-    mutationFn: (d) => bucketsAPI.create(d),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['net-worth'] }); setAddOpen(false); aReset(); toast.success('Bucket added!'); },
+  const { data: summaryData, isLoading } = useQuery({
+    queryKey: ['accounts-summary'],
+    queryFn: () => accountsAPI.getSummary().then(r => r.data.data),
   });
-  const balMut = useMutation({
-    mutationFn: ({ id, balance, note }) => bucketsAPI.updateBalance(id, balance, note),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['net-worth'] }); qc.invalidateQueries({ queryKey: ['net-worth-history'] }); setUpdateOpen(null); uReset(); toast.success('Balance updated!'); },
-  });
-  const txfrMut = useMutation({
-    mutationFn: (d) => bucketsAPI.transfer(d),
-    onSuccess: ({ data }) => { qc.invalidateQueries({ queryKey: ['net-worth'] }); setTransferOpen(false); tReset(); toast.success(data.message); },
-    onError: (e) => toast.error(e.response?.data?.message || 'Failed'),
-  });
+  const accounts = summaryData?.accounts || [];
+  const totalBalance = summaryData?.totalBalance || 0;
+  const safeToSpend = summaryData?.safeToSpend ?? 0;
+  const unpaidCommitments = summaryData?.unpaidCommitments || 0;
 
-  const { register: aReg, handleSubmit: aSubmit, reset: aReset } = useForm();
+  const { register: aReg, handleSubmit: aSubmit, reset: aReset, watch: aWatch } = useForm({
+    defaultValues: { type: 'bank_account', balance: '', name: '', color: '#F5A623' },
+  });
   const { register: uReg, handleSubmit: uSubmit, reset: uReset } = useForm();
+  const { register: eReg, handleSubmit: eSubmit, reset: eReset } = useForm();
   const { register: tReg, handleSubmit: tSubmit, reset: tReset } = useForm();
 
-  const total = nwData?.total || 0;
-  const byBucket = nwData?.byBucket || [];
-  const safeToSpend = nwData?.safeToSpend || 0;
-  const momDelta = nwData?.momDelta || 0;
-  const histChart = histData?.data || [];
-  const gap = accData?.gap || 0;
+  const createMut = useMutation({
+    mutationFn: (d) => accountsAPI.create(d),
+    onSuccess: () => {
+      invalidate();
+      setAddOpen(false);
+      aReset();
+      toast.success('Account added!');
+    },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed to add'),
+  });
+  const balMut = useMutation({
+    mutationFn: ({ id, balance, note }) => accountsAPI.updateBalance(id, parseFloat(balance), note),
+    onSuccess: () => {
+      invalidate();
+      setBalOpen(null);
+      uReset();
+      toast.success('Balance updated!');
+    },
+  });
+  const editMut = useMutation({
+    mutationFn: ({ id, ...data }) => accountsAPI.update(id, data),
+    onSuccess: () => {
+      invalidate();
+      setEditOpen(null);
+      eReset();
+      toast.success('Account updated!');
+    },
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id) => accountsAPI.delete(id),
+    onSuccess: () => { invalidate(); toast.success('Account removed'); },
+    onError: (e) => toast.error(e.response?.data?.message || 'Failed to delete'),
+  });
+  const defaultMut = useMutation({
+    mutationFn: (id) => accountsAPI.setDefault(id),
+    onSuccess: () => { invalidate(); toast.success('Default account updated!'); },
+  });
+  const transferMut = useMutation({
+    mutationFn: (d) => accountsAPI.transfer(d),
+    onSuccess: ({ data }) => {
+      invalidate();
+      setTransferOpen(false);
+      tReset();
+      toast.success(data.message || 'Transfer complete!');
+    },
+    onError: (e) => toast.error(e.response?.data?.message || 'Transfer failed'),
+  });
+
   const disp = (v) => showBals ? formatINR(v) : '₹ ••••';
 
   return (
+    <MobilePage title="My Money">
     <PageWrapper>
       <div className="space-y-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display font-bold text-2xl text-vault-text-primary flex items-center gap-2">
               <Wallet size={24} className="text-vault-amber" /> My Money
             </h1>
-            <p className="text-vault-text-secondary text-sm mt-1">Your complete net worth picture.</p>
+            <p className="text-vault-text-secondary text-sm mt-1">Real balances. Real spending power.</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="icon" onClick={() => setShowBals(!showBals)}>{showBals ? <Eye size={16} /> : <EyeOff size={16} />}</Button>
-            <Button variant="secondary" size="sm" onClick={() => setTransferOpen(true)}><ArrowRightLeft size={14} /> Transfer</Button>
-            <Button size="sm" onClick={() => setAddOpen(true)}><Plus size={14} /> Add</Button>
+            <Button variant="icon" onClick={() => setShowBals(!showBals)}>
+              {showBals ? <Eye size={16} /> : <EyeOff size={16} />}
+            </Button>
+            {accounts.length > 1 && (
+              <Button variant="secondary" size="sm" onClick={() => setTransferOpen(true)}>
+                <ArrowRightLeft size={14} /> Transfer
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus size={14} /> Add Account
+            </Button>
           </div>
         </div>
 
-        {/* Net Worth Hero */}
+        {/* Safe to Spend Hero */}
         {isLoading ? <CardSkeleton /> : (
           <Card glow="amber">
-            <p className="text-xs text-vault-text-muted uppercase tracking-widest mb-2">Net Liquid Worth</p>
-            <div className="flex items-end gap-4 mb-6">
-              <p className="text-5xl font-display font-bold text-vault-text-primary">{disp(total)}</p>
-              <div className={`flex items-center gap-1 text-sm font-medium pb-1 ${momDelta >= 0 ? 'text-vault-teal' : 'text-vault-red'}`}>
-                {momDelta >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                {momDelta >= 0 ? '+' : ''}{formatINR(momDelta)} MoM
-              </div>
-            </div>
-            <div className="space-y-2 mb-6">
-              {byBucket.map((b, i) => {
-                const Icon = BUCKET_ICONS[b.type] || Wallet;
-                const color = BUCKET_COLORS[i % BUCKET_COLORS.length];
-                return (
-                  <div key={b._id} className="flex items-center gap-3">
-                    <Icon size={14} style={{ color }} className="flex-shrink-0" />
-                    <span className="text-sm text-vault-text-secondary w-32 truncate">{b.name}</span>
-                    <div className="flex-1 h-1.5 bg-white/08 rounded-full overflow-hidden">
-                      <motion.div initial={{ width: 0 }} animate={{ width: `${b.pct}%` }} transition={{ duration: 0.6, delay: i * 0.1 }}
-                        className="h-full rounded-full" style={{ background: color }} />
-                    </div>
-                    <span className="text-sm font-medium text-vault-text-primary w-24 text-right tabular-nums">{disp(b.balance)}</span>
-                    <button onClick={() => { setUpdateOpen(b); uReset({ balance: b.balance }); }}
-                      className="p-1 hover:text-vault-amber text-vault-text-muted transition-all">
-                      <RefreshCw size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className={`p-4 rounded-vault-md ${safeToSpend >= 0 ? 'bg-[rgba(0,200,150,0.08)] border border-[rgba(0,200,150,0.2)]' : 'bg-[rgba(255,90,90,0.08)] border border-[rgba(255,90,90,0.2)]'}`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-vault-text-muted uppercase tracking-wide">Safe to Spend</p>
-                  <p className={`text-2xl font-display font-bold mt-1 ${safeToSpend >= 0 ? 'text-vault-teal' : 'text-vault-red'}`}>{disp(Math.abs(safeToSpend))}</p>
-                </div>
-                <div className="text-right text-xs text-vault-text-muted">
-                  <p>After unpaid commitments</p>
-                  <p className="mt-0.5">{formatINR(nwData?.unpaidTotal || 0)} pending</p>
-                </div>
-              </div>
-              {safeToSpend < 0 && (
-                <div className="flex items-center gap-2 mt-2">
-                  <AlertTriangle size={12} className="text-vault-red" />
-                  <p className="text-xs text-vault-red">Unpaid commitments exceed current balance</p>
-                </div>
-              )}
-            </div>
-          </Card>
-        )}
-
-        {/* Empty state */}
-        {!isLoading && byBucket.length === 0 && (
-          <Card className="text-center py-10">
-            <Wallet size={36} className="text-vault-amber mx-auto mb-3 opacity-40" />
-            <p className="text-vault-text-secondary">No buckets yet</p>
-            <p className="text-xs text-vault-text-muted mt-1 mb-4">Add your accounts, cash, and wallets</p>
-            <Button onClick={() => setAddOpen(true)}><Plus size={14} /> Add First Bucket</Button>
-          </Card>
-        )}
-
-        {/* Trend chart */}
-        {histChart.length > 0 && (
-          <Card padding={false}>
-            <div className="p-5 pb-2">
-              <h2 className="font-display font-semibold text-vault-text-primary">Net Worth Trend</h2>
-              <p className="text-xs text-vault-text-muted">Last 6 months</p>
-            </div>
-            <div className="px-2 pb-4">
-              <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={histChart}>
-                  <defs>
-                    <linearGradient id="nwGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#F5A623" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#F5A623" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#4A4F63' }} />
-                  <YAxis tickFormatter={v => formatCompact(v)} tick={{ fontSize: 11, fill: '#4A4F63' }} />
-                  <Tooltip formatter={v => formatINR(v)} contentStyle={{ background: '#13151C', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
-                  <Area type="monotone" dataKey="netWorth" name="Net Worth" stroke="#F5A623" fill="url(#nwGrad)" strokeWidth={2} dot={{ r: 4, fill: '#F5A623' }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        )}
-
-        {/* Savings accuracy */}
-        {accData?.hasData && Math.abs(gap) > 500 && (
-          <Card className="border-l-2 border-vault-purple">
-            <div className="flex items-start gap-3">
-              <AlertTriangle size={18} className="text-vault-purple flex-shrink-0 mt-0.5" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <p className="text-sm font-medium text-vault-text-primary">True Savings Accuracy Check</p>
-                <p className="text-xs text-vault-text-secondary mt-1 leading-relaxed">
-                  Your logged records suggest you saved <span className="text-vault-teal font-medium">{formatINR(accData.loggedSavings)}</span> this month,
-                  but your balance only grew by <span className="text-vault-amber font-medium">{formatINR(accData.actualChange)}</span>.
-                  About <span className="text-vault-red font-medium">{formatINR(Math.abs(gap))}</span> {gap > 0 ? 'may be untracked (cash, forgotten transactions).' : 'is extra unlisted income.'}
+                <p className="text-xs text-vault-text-muted uppercase tracking-widest mb-2">Total Balance</p>
+                <p className="text-4xl font-display font-bold text-vault-text-primary">{disp(totalBalance)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-vault-text-muted uppercase tracking-widest mb-2">Safe to Spend</p>
+                <p className={`text-4xl font-display font-bold ${safeToSpend >= 0 ? 'text-vault-teal' : 'text-vault-red'}`}>
+                  {disp(Math.abs(safeToSpend))}
+                </p>
+                {unpaidCommitments > 0 && (
+                  <p className="text-xs text-vault-text-muted mt-1">−{formatINR(unpaidCommitments)} pending commitments</p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-vault-text-muted uppercase tracking-widest mb-2">Formula</p>
+                <p className="text-xs text-vault-text-secondary leading-relaxed">
+                  Total Balance<br />
+                  − Unpaid Commitments<br />
+                  = Safe to Spend
                 </p>
               </div>
             </div>
           </Card>
         )}
 
-        <p className="text-xs text-vault-text-muted text-center">🔒 Balances are stored securely and never shared. Delete all wallet data anytime from Settings → Data.</p>
+        {/* Account Cards */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[...Array(2)].map((_, i) => <CardSkeleton key={i} />)}
+          </div>
+        ) : accounts.length === 0 ? (
+          <Card>
+            <div className="text-center py-8">
+              <p className="text-4xl mb-3">🏦</p>
+              <p className="font-display font-semibold text-vault-text-primary mb-2">No accounts yet</p>
+              <p className="text-sm text-vault-text-muted mb-4">
+                Add your bank accounts, UPI wallets, and credit cards to start tracking your real balances.
+              </p>
+              <Button onClick={() => setAddOpen(true)}><Plus size={14} /> Add your first account</Button>
+            </div>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {accounts.map((acc, i) => {
+              const pct = totalBalance > 0 ? Math.round((acc.balance / totalBalance) * 100) : 0;
+              return (
+                <motion.div
+                  key={acc._id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                >
+                  <Card style={{
+                    border: acc.isDefault
+                      ? `0.5px solid ${acc.color || '#F5A623'}55`
+                      : '0.5px solid rgba(255,255,255,0.07)',
+                  }}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <div style={{
+                          width: 42, height: 42, borderRadius: 12,
+                          background: `${acc.color || '#F5A623'}18`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 20, flexShrink: 0,
+                        }}>
+                          {getTypeEmoji(acc.type)}
+                        </div>
+                        <div>
+                          <p className="font-display font-semibold text-vault-text-primary">{acc.name}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-vault-text-muted">{getTypeLabel(acc.type)}</span>
+                            {acc.isDefault && (
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+                                padding: '2px 6px', borderRadius: 100,
+                                background: `${acc.color || '#F5A623'}22`,
+                                color: acc.color || '#F5A623',
+                              }}>DEFAULT</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => { setBalOpen(acc); uReset({ balance: acc.balance, note: '' }); }}
+                          className="p-1.5 rounded-lg text-vault-text-muted hover:text-vault-amber hover:bg-white/05 transition-all"
+                          title="Update balance"
+                        >
+                          <RefreshCw size={13} />
+                        </button>
+                        {!acc.isDefault && (
+                          <button
+                            onClick={() => defaultMut.mutate(acc._id)}
+                            className="p-1.5 rounded-lg text-vault-text-muted hover:text-vault-amber hover:bg-white/05 transition-all"
+                            title="Set as default"
+                          >
+                            <Star size={13} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => { setEditOpen(acc); eReset({ name: acc.name, type: acc.type, color: acc.color }); }}
+                          className="p-1.5 rounded-lg text-vault-text-muted hover:text-vault-blue hover:bg-white/05 transition-all"
+                          title="Edit"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Remove "${acc.name}"? This won't affect past transactions.`)) {
+                              deleteMut.mutate(acc._id);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-vault-text-muted hover:text-vault-red hover:bg-white/05 transition-all"
+                          title="Delete"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
 
-        {/* Add Bucket Modal */}
-        <Modal isOpen={addOpen} onClose={() => { setAddOpen(false); aReset(); }} title="Add Money Bucket">
-          <form onSubmit={aSubmit(d => createMut.mutate({ ...d, balance: parseFloat(d.balance) }))} className="space-y-4">
-            <Input label="Name" placeholder="SBI Savings, PhonePe, Cash…" {...aReg('name', { required: true })} />
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-vault-text-secondary uppercase tracking-wide">Type</label>
-              <select className="vault-select" {...aReg('type')}>
-                <option value="bank_account">🏦 Bank Account</option>
-                <option value="cash">💵 Cash</option>
-                <option value="upi_wallet">📱 UPI Wallet</option>
-                <option value="other">📂 Other</option>
-              </select>
-            </div>
-            <Input label="Current balance" type="number" prefix="₹" {...aReg('balance', { required: true })} />
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" className="w-4 h-4 accent-amber-500" {...aReg('isPrimary')} />
-              <span className="text-sm text-vault-text-secondary">Primary salary account</span>
-            </label>
-            <div className="flex gap-3 pt-2">
-              <Button variant="secondary" type="button" onClick={() => setAddOpen(false)} fullWidth>Cancel</Button>
-              <Button type="submit" loading={createMut.isPending} fullWidth>Add Bucket</Button>
-            </div>
-          </form>
-        </Modal>
+                    {/* Balance */}
+                    <p className="text-3xl font-display font-bold text-vault-text-primary mb-3">
+                      {disp(acc.balance)}
+                    </p>
 
-        {/* Update Balance Modal */}
-        <Modal isOpen={!!updateOpen} onClose={() => { setUpdateOpen(null); uReset(); }} title={`Update: ${updateOpen?.name}`}>
-          <form onSubmit={uSubmit(d => balMut.mutate({ id: updateOpen._id, balance: parseFloat(d.balance), note: d.note }))} className="space-y-4">
-            <div className="text-center p-3 bg-white/03 rounded-vault-md mb-2">
-              <p className="text-xs text-vault-text-muted">Previous: {formatINR(updateOpen?.balance)}</p>
-            </div>
-            <Input label="New balance" type="number" prefix="₹" defaultValue={updateOpen?.balance} {...uReg('balance', { required: true })} />
-            <Input label="Note (optional)" placeholder="Salary credited, ATM withdrawal…" {...uReg('note')} />
-            <div className="flex gap-3 pt-2">
-              <Button variant="secondary" type="button" onClick={() => setUpdateOpen(null)} fullWidth>Cancel</Button>
-              <Button type="submit" loading={balMut.isPending} fullWidth>Update</Button>
-            </div>
-          </form>
-        </Modal>
-
-        {/* Transfer Modal */}
-        <Modal isOpen={transferOpen} onClose={() => { setTransferOpen(false); tReset(); }} title="Transfer Between Buckets">
-          <form onSubmit={tSubmit(d => txfrMut.mutate({ fromId: d.fromId, toId: d.toId, amount: parseFloat(d.amount) }))} className="space-y-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-vault-text-secondary uppercase tracking-wide">From</label>
-              <select className="vault-select" {...tReg('fromId', { required: true })}>
-                {byBucket.map(b => <option key={b._id} value={b._id}>{b.name} ({formatINR(b.balance)})</option>)}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-vault-text-secondary uppercase tracking-wide">To</label>
-              <select className="vault-select" {...tReg('toId', { required: true })}>
-                {byBucket.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-              </select>
-            </div>
-            <Input label="Amount" type="number" prefix="₹" {...tReg('amount', { required: true })} />
-            <p className="text-xs text-vault-text-muted">Net worth stays the same — just moves money between buckets.</p>
-            <div className="flex gap-3 pt-2">
-              <Button variant="secondary" type="button" onClick={() => setTransferOpen(false)} fullWidth>Cancel</Button>
-              <Button type="submit" loading={txfrMut.isPending} fullWidth>Transfer</Button>
-            </div>
-          </form>
-        </Modal>
+                    {/* Balance bar */}
+                    {totalBalance > 0 && (
+                      <div>
+                        <div className="h-1.5 bg-white/06 rounded-full overflow-hidden mb-1">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.max(pct, 2)}%` }}
+                            transition={{ delay: 0.2 + i * 0.06, duration: 0.5, ease: 'easeOut' }}
+                            className="h-full rounded-full"
+                            style={{ background: acc.color || '#F5A623' }}
+                          />
+                        </div>
+                        <p className="text-xs text-vault-text-muted">{pct}% of total</p>
+                      </div>
+                    )}
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      {/* ── Add Account Modal ── */}
+      <Modal isOpen={addOpen} onClose={() => { setAddOpen(false); aReset(); }} title="Add Account" size="sm">
+        <form onSubmit={aSubmit((d) => createMut.mutate(d))} className="space-y-4">
+          <Input label="Account Name" placeholder="e.g. HDFC Savings" {...aReg('name', { required: true })} />
+
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">Type</label>
+            <select className="gi w-full" {...aReg('type')}>
+              {ACCOUNT_TYPES.map(t => (
+                <option key={t.id} value={t.id}>{t.emoji} {t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">Opening Balance</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-vault-text-muted font-medium">₹</span>
+              <input type="number" step="0.01" className="gi w-full" style={{ paddingLeft: 32 }} placeholder="0" {...aReg('balance')} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">Color</label>
+            <div className="flex gap-2 flex-wrap">
+              {ACCOUNT_COLORS.map(color => {
+                const selected = aWatch('color') === color;
+                return (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => aReg('color').onChange({ target: { value: color, name: 'color' } })}
+                    style={{
+                      width: 28, height: 28, borderRadius: '50%', background: color,
+                      border: selected ? '3px solid #fff' : '2px solid transparent',
+                      boxShadow: selected ? `0 0 0 2px ${color}` : 'none',
+                      cursor: 'pointer', flexShrink: 0,
+                      outline: 'none', transition: 'all 0.15s ease',
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="secondary" onClick={() => { setAddOpen(false); aReset(); }} style={{ flex: 1 }}>Cancel</Button>
+            <Button type="submit" loading={createMut.isPending} style={{ flex: 1 }}>Add Account</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ── Update Balance Modal ── */}
+      <Modal isOpen={!!balOpen} onClose={() => { setBalOpen(null); uReset(); }} title={`Update Balance — ${balOpen?.name}`} size="sm">
+        <form onSubmit={uSubmit((d) => balMut.mutate({ id: balOpen._id, ...d }))} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">New Balance</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-vault-text-muted font-medium">₹</span>
+              <input type="number" step="0.01" className="gi w-full" style={{ paddingLeft: 32 }} {...uReg('balance', { required: true })} />
+            </div>
+          </div>
+          <Input label="Note (optional)" placeholder="e.g., Salary received" {...uReg('note')} />
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" onClick={() => setBalOpen(null)} style={{ flex: 1 }}>Cancel</Button>
+            <Button type="submit" loading={balMut.isPending} style={{ flex: 1 }}>Update</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ── Edit Account Modal ── */}
+      <Modal isOpen={!!editOpen} onClose={() => { setEditOpen(null); eReset(); }} title={`Edit — ${editOpen?.name}`} size="sm">
+        <form onSubmit={eSubmit((d) => editMut.mutate({ id: editOpen._id, ...d }))} className="space-y-4">
+          <Input label="Account Name" {...eReg('name', { required: true })} />
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">Type</label>
+            <select className="gi w-full" {...eReg('type')}>
+              {ACCOUNT_TYPES.map(t => <option key={t.id} value={t.id}>{t.emoji} {t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">Color</label>
+            <div className="flex gap-2 flex-wrap">
+              {ACCOUNT_COLORS.map(color => (
+                <button
+                  key={color} type="button"
+                  onClick={() => eReg('color').onChange({ target: { value: color, name: 'color' } })}
+                  style={{
+                    width: 28, height: 28, borderRadius: '50%', background: color,
+                    border: editOpen?.color === color ? '3px solid #fff' : '2px solid transparent',
+                    boxShadow: editOpen?.color === color ? `0 0 0 2px ${color}` : 'none',
+                    cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" onClick={() => setEditOpen(null)} style={{ flex: 1 }}>Cancel</Button>
+            <Button type="submit" loading={editMut.isPending} style={{ flex: 1 }}>Save</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ── Transfer Modal ── */}
+      <Modal isOpen={transferOpen} onClose={() => { setTransferOpen(false); tReset(); }} title="Transfer Between Accounts" size="sm">
+        <form onSubmit={tSubmit((d) => transferMut.mutate(d))} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">From</label>
+            <select className="gi w-full" {...tReg('fromId', { required: true })}>
+              <option value="">Select account</option>
+              {accounts.map(a => <option key={a._id} value={a._id}>{getTypeEmoji(a.type)} {a.name} — {formatINR(a.balance)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">To</label>
+            <select className="gi w-full" {...tReg('toId', { required: true })}>
+              <option value="">Select account</option>
+              {accounts.map(a => <option key={a._id} value={a._id}>{getTypeEmoji(a.type)} {a.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-vault-text-muted uppercase tracking-wide mb-2">Amount</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-vault-text-muted font-medium">₹</span>
+              <input type="number" step="0.01" className="gi w-full" style={{ paddingLeft: 32 }} {...tReg('amount', { required: true })} />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" onClick={() => setTransferOpen(false)} style={{ flex: 1 }}>Cancel</Button>
+            <Button type="submit" loading={transferMut.isPending} style={{ flex: 1 }}>Transfer</Button>
+          </div>
+        </form>
+      </Modal>
     </PageWrapper>
+    </MobilePage>
   );
 }
+
+

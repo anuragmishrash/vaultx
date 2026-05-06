@@ -2,8 +2,8 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { transactionsAPI, commitmentsAPI, patternsAPI } from '../../api';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { transactionsAPI, commitmentsAPI, patternsAPI, accountsAPI } from '../../api';
 import Modal from '../ui/Modal';
 import QuickTemplates from './QuickTemplates';
 import { CATEGORIES, PAYMENT_MODES } from '../../constants/categories';
@@ -24,12 +24,21 @@ const schema = z.object({
   tags: z.string().optional(),
 });
 
+const getAccountEmoji = (type) => ({
+  bank_account: '🏦',
+  cash:         '💵',
+  upi_wallet:   '📱',
+  credit_card:  '💳',
+  other:        '💰',
+}[type] || '💰');
+
 export default function AddTransactionModal({ isOpen, onClose, editTx }) {
   const qc = useQueryClient();
   const [brainMatch, setBrainMatch] = useState(null);
   const [memorySuggestions, setMemorySuggestions] = useState([]);
   const [autoFillApplied, setAutoFillApplied] = useState(false);
   const [categoryManuallySet, setCategoryManuallySet] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState(null);
   const debounceRef = useRef(null);
 
   const { register, handleSubmit, watch, reset, setValue, control, formState: { errors } } = useForm({
@@ -52,10 +61,27 @@ export default function AddTransactionModal({ isOpen, onClose, editTx }) {
     setMemorySuggestions([]);
     setAutoFillApplied(false);
     setCategoryManuallySet(false);
+    setSelectedAccountId(null);
     clearTimeout(debounceRef.current);
-    reset(); // reset all form state including isGuiltyFreeSpend
+    reset();
     onClose();
   }, [onClose, reset]);
+
+  // Fetch accounts for the account picker
+  const { data: accountsData } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => accountsAPI.getAll().then(r => r.data.data || []),
+    staleTime: 5 * 60 * 1000,
+  });
+  const accounts = accountsData || [];
+  const defaultAccount = accounts.find(a => a.isDefault) || accounts[0];
+
+  // Set default account when accounts load or modal opens
+  useEffect(() => {
+    if (defaultAccount && !selectedAccountId) {
+      setSelectedAccountId(defaultAccount._id);
+    }
+  }, [defaultAccount]); // eslint-disable-line
 
   useEffect(() => {
     if (editTx && isOpen) {
@@ -78,6 +104,7 @@ export default function AddTransactionModal({ isOpen, onClose, editTx }) {
       const payload = {
         ...data,
         tags: data.tags ? data.tags.split(',').map(t => t.trim()) : [],
+        accountId: selectedAccountId || null,
       };
       if (editTx) {
         return transactionsAPI.update(editTx._id, payload);
@@ -87,6 +114,7 @@ export default function AddTransactionModal({ isOpen, onClose, editTx }) {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
       qc.invalidateQueries({ queryKey: ['commitment-logs'] });
       qc.invalidateQueries({ queryKey: ['waterfall'] });
       qc.invalidateQueries({ queryKey: ['zero-streak'] });
@@ -280,6 +308,65 @@ export default function AddTransactionModal({ isOpen, onClose, editTx }) {
             <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#F5A623', margin: '5px 0 0', display: 'flex', alignItems: 'center', gap: 4 }}>
               ⚠ Future date — this transaction won't appear in this month's spending total until that date arrives.
             </p>
+          )}
+        </div>
+
+        {/* Account Picker */}
+        <div>
+          <label style={{ display: 'block', fontFamily: 'Inter', fontSize: 12, fontWeight: 500, color: '#9295A8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>Pay From Account</label>
+          {accounts.length === 0 ? (
+            <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '0.5px solid rgba(255,255,255,0.07)' }}>
+              <p style={{ fontFamily: 'Inter', fontSize: 12, color: '#4A4E65', margin: 0 }}>
+                No accounts added — transaction will be logged without balance tracking.{' '}
+                <a href="/my-money" style={{ color: '#F5A623', textDecoration: 'none' }}>Add an account →</a>
+              </p>
+            </div>
+          ) : accounts.length === 1 ? (
+            <div style={{
+              padding: '10px 14px', borderRadius: 12,
+              background: `${accounts[0].color}14`,
+              border: `0.5px solid ${accounts[0].color}44`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <span style={{ fontSize: 16 }}>{getAccountEmoji(accounts[0].type)}</span>
+              <div>
+                <p style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: 13, color: '#EAEDF5', margin: 0 }}>{accounts[0].name}</p>
+                <p style={{ fontFamily: 'Inter', fontSize: 11, color: '#9295A8', margin: 0 }}>₹{accounts[0].balance?.toLocaleString('en-IN')} available</p>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {accounts.map(account => {
+                const isSelected = selectedAccountId === account._id?.toString() || selectedAccountId === account._id;
+                return (
+                  <div key={account._id}
+                    onClick={() => setSelectedAccountId(account._id)}
+                    style={{
+                      padding: '10px 14px', borderRadius: 12, cursor: 'pointer',
+                      background: isSelected ? `${account.color}14` : 'rgba(255,255,255,0.03)',
+                      border: `0.5px solid ${isSelected ? `${account.color}44` : 'rgba(255,255,255,0.07)'}`,
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      transition: 'all 0.18s ease',
+                    }}>
+                    <div style={{
+                      width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                      background: isSelected ? '#00C9A7' : 'rgba(255,255,255,0.07)',
+                      border: isSelected ? 'none' : '1.5px solid rgba(255,255,255,0.15)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 10, color: '#002820', fontWeight: 700,
+                    }}>{isSelected ? '✓' : ''}</div>
+                    <span style={{ fontSize: 15, flexShrink: 0 }}>{getAccountEmoji(account.type)}</span>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: 13, color: '#EAEDF5', margin: 0 }}>
+                        {account.name}
+                        {account.isDefault && <span style={{ fontFamily: 'Inter', fontSize: 10, color: '#4A4E65', fontWeight: 400, marginLeft: 6 }}>Default</span>}
+                      </p>
+                      <p style={{ fontFamily: 'Inter', fontSize: 11, color: '#9295A8', margin: 0 }}>₹{account.balance?.toLocaleString('en-IN')} available</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 

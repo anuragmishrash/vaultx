@@ -31,6 +31,11 @@ const transactionSchema = new mongoose.Schema({
   isCommitmentPayment: { type: Boolean, default: false },
   isCashSpend: { type: Boolean, default: false },
   isATMWithdrawal: { type: Boolean, default: false },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    default: null,
+  },
   tags: [{ type: String, trim: true }],
 }, { timestamps: true });
 

@@ -1,7 +1,48 @@
 const Transaction = require('../models/Transaction');
+const Account = require('../models/Account');
+const User = require('../models/User');
 const { Parser } = require('json2csv');
 const { findMatchingCommitment } = require('../utils/brainEngine');
 const { invalidateAndRefresh } = require('../utils/zeroDayEngine');
+
+// ── helper: deduct from account after a spend ────────────────────────────────
+async function deductFromAccount(accountId, userId, amount, note) {
+  if (!accountId) return;
+  await Account.findOneAndUpdate(
+    { _id: accountId, userId },
+    {
+      $inc: { balance: -amount },
+      $push: { balanceHistory: { balance: 0, recordedAt: new Date(), note } },
+    },
+    { new: true }
+  ).then(async acc => {
+    if (acc) {
+      // Update the placeholder history entry with the real new balance
+      const last = acc.balanceHistory.length - 1;
+      acc.balanceHistory[last].balance = acc.balance;
+      await acc.save();
+    }
+  }).catch(() => {}); // non-fatal
+}
+
+// ── helper: restore to account when transaction deleted / changed ────────────
+async function restoreToAccount(accountId, userId, amount, note) {
+  if (!accountId) return;
+  await Account.findOneAndUpdate(
+    { _id: accountId, userId },
+    {
+      $inc: { balance: +amount },
+      $push: { balanceHistory: { balance: 0, recordedAt: new Date(), note } },
+    },
+    { new: true }
+  ).then(async acc => {
+    if (acc) {
+      const last = acc.balanceHistory.length - 1;
+      acc.balanceHistory[last].balance = acc.balance;
+      await acc.save();
+    }
+  }).catch(() => {});
+}
 
 const getTransactions = async (req, res, next) => {
   try {
@@ -55,43 +96,63 @@ const getTransactions = async (req, res, next) => {
 const createTransaction = async (req, res, next) => {
   try {
     const data = { ...req.body, userId: req.user._id };
-    
-    // Fix: Parse as local time noon to avoid UTC timezone boundary issues
+
+    // Parse date as local noon to avoid UTC boundary issues
     if (data.date) {
-      // if it's just "YYYY-MM-DD", append T12:00:00 to treat it as local noon
       const dateStr = data.date.includes('T') ? data.date : `${data.date}T12:00:00`;
       data.date = new Date(dateStr);
     } else {
       data.date = new Date();
     }
 
-    // Auto-set isCashSpend
+    // Auto-set cash/ATM flags
     if (data.paymentMode === 'Cash') data.isCashSpend = true;
     if (data.paymentMode === 'ATM Withdrawal') {
       data.isATMWithdrawal = true;
-      data.isCashSpend = false; // ATM withdrawal is not a spend, it's a transfer to cash
+      data.isCashSpend = false;
       data.category = 'Others';
     }
     if (data.isGuiltyFreeSpend) {
       data.category = 'Guilt-Free';
       data.regretStatus = 'worth_it';
     }
+
+    // Resolve accountId — use body value or fall back to user's default
+    let accountId = data.accountId || null;
+    if (!accountId) {
+      const user = await User.findById(req.user._id).select('defaultAccountId');
+      accountId = user?.defaultAccountId || null;
+    }
+    data.accountId = accountId;
+
     const transaction = await Transaction.create(data);
 
-    // Auto-update cash envelope on ATM withdrawal
-    if (transaction.isATMWithdrawal) {
-      const CashEnvelope = require('../models/CashEnvelope');
-      const txDate = new Date(transaction.date);
-      const month = txDate.getMonth() + 1;
-      const year = txDate.getFullYear();
-      const env = await CashEnvelope.findOneAndUpdate(
-        { userId: req.user._id, month, year },
-        { $inc: { totalWithdrawn: transaction.amount, currentBalance: transaction.amount } },
-        { upsert: false, new: true }
+    // AUTO-DEDUCT from the linked account (applies to all types including credit_card)
+    if (accountId && !transaction.isATMWithdrawal) {
+      await deductFromAccount(
+        accountId,
+        req.user._id,
+        transaction.amount,
+        `Spent: ${transaction.title}`
       );
     }
 
-    // If recurring, create/update subscription
+    // ATM withdrawal: top up the cash envelope
+    if (transaction.isATMWithdrawal) {
+      const CashEnvelope = require('../models/CashEnvelope');
+      const txDate = new Date(transaction.date);
+      await CashEnvelope.findOneAndUpdate(
+        { userId: req.user._id, month: txDate.getMonth() + 1, year: txDate.getFullYear() },
+        { $inc: { totalWithdrawn: transaction.amount, currentBalance: transaction.amount } },
+        { upsert: false }
+      );
+      // ATM withdrawal also deducts from bank account
+      if (accountId) {
+        await deductFromAccount(accountId, req.user._id, transaction.amount, `ATM Withdrawal`);
+      }
+    }
+
+    // Recurring subscription tracking
     if (transaction.isRecurring && transaction.recurringLabel) {
       const Subscription = require('../models/Subscription');
       const existing = await Subscription.findOne({ userId: req.user._id, name: transaction.recurringLabel });
@@ -116,16 +177,14 @@ const createTransaction = async (req, res, next) => {
       const match = await findMatchingCommitment(transaction, req.user._id);
       if (match) {
         commitmentMatch = {
-          commitmentId: match.commitment._id,
-          commitmentTitle: match.commitment.title,
+          commitmentId:     match.commitment._id,
+          commitmentTitle:  match.commitment.title,
           commitmentAmount: match.commitment.amount,
-          logId: match.log._id,
-          score: match.score,
+          logId:            match.log._id,
+          score:            match.score,
         };
       }
-    } catch (e) {
-      // Non-fatal — never block the response
-    }
+    } catch (e) { /* non-fatal */ }
 
     await invalidateAndRefresh(req.user._id, [new Date(transaction.date)]);
 
@@ -138,11 +197,11 @@ const createTransaction = async (req, res, next) => {
           { userId: req.user._id, normalizedTitle: nTitle },
           {
             $set: {
-              displayTitle: transaction.title,
-              category: transaction.category,
-              paymentMode: transaction.paymentMode,
+              displayTitle:  transaction.title,
+              category:      transaction.category,
+              paymentMode:   transaction.paymentMode,
               typicalAmount: transaction.amount,
-              lastUsedAt: new Date(),
+              lastUsedAt:    new Date(),
             },
             $inc: { timesUsed: 1 },
           },
@@ -161,14 +220,39 @@ const updateTransaction = async (req, res, next) => {
   try {
     const existing = await Transaction.findOne({ _id: req.params.id, userId: req.user._id });
     if (!existing) return res.status(404).json({ success: false, message: 'Transaction not found' });
-    const originalDate = new Date(existing.date);
+
+    const originalDate      = new Date(existing.date);
+    const oldAmount         = existing.amount;
+    const oldAccountId      = existing.accountId?.toString() || null;
+    const newAmount         = req.body.amount !== undefined ? parseFloat(req.body.amount) : oldAmount;
+    const newAccountId      = req.body.accountId || oldAccountId;
 
     const transaction = await Transaction.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id },
       req.body,
       { new: true, runValidators: true }
     );
-    
+
+    // ── Account balance reconciliation ──────────────────────────────────────
+    if (oldAccountId && oldAccountId === newAccountId) {
+      // Same account — adjust for amount difference
+      const diff = newAmount - oldAmount;
+      if (diff !== 0) {
+        await Account.findOneAndUpdate(
+          { _id: oldAccountId, userId: req.user._id },
+          { $inc: { balance: -diff } }
+        );
+      }
+    } else {
+      // Account changed — restore to old, deduct from new
+      if (oldAccountId) {
+        await restoreToAccount(oldAccountId, req.user._id, oldAmount, `Edited transaction: ${existing.title}`);
+      }
+      if (newAccountId) {
+        await deductFromAccount(newAccountId, req.user._id, newAmount, `Edited transaction: ${transaction.title}`);
+      }
+    }
+
     const datesToInvalidate = [new Date(transaction.date)];
     if (originalDate.toDateString() !== new Date(transaction.date).toDateString()) {
       datesToInvalidate.push(originalDate);
@@ -183,11 +267,18 @@ const updateTransaction = async (req, res, next) => {
 
 const deleteTransaction = async (req, res, next) => {
   try {
-    const transaction = await Transaction.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+    const transaction = await Transaction.findOne({ _id: req.params.id, userId: req.user._id });
     if (!transaction) return res.status(404).json({ success: false, message: 'Transaction not found' });
-    
+
+    const { amount, accountId, title } = transaction;
+    await transaction.deleteOne();
+
+    // Restore balance to the linked account
+    if (accountId) {
+      await restoreToAccount(accountId, req.user._id, amount, `Deleted: ${title}`);
+    }
+
     await invalidateAndRefresh(req.user._id, [new Date(transaction.date)]);
-    
     res.json({ success: true, message: 'Transaction deleted' });
   } catch (err) {
     next(err);
@@ -197,6 +288,15 @@ const deleteTransaction = async (req, res, next) => {
 const bulkDeleteTransactions = async (req, res, next) => {
   try {
     const { ids } = req.body;
+    const txns = await Transaction.find({ _id: { $in: ids }, userId: req.user._id });
+
+    // Restore each transaction's amount to its linked account
+    for (const t of txns) {
+      if (t.accountId) {
+        await restoreToAccount(t.accountId, req.user._id, t.amount, `Bulk delete: ${t.title}`);
+      }
+    }
+
     await Transaction.deleteMany({ _id: { $in: ids }, userId: req.user._id });
     res.json({ success: true, message: `${ids.length} transactions deleted` });
   } catch (err) {

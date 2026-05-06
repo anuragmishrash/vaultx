@@ -462,12 +462,6 @@ export default function Dashboard() {
 
   const displayWf = historicalWf;
 
-  const { data: nwData } = useQuery({
-    queryKey: ['net-worth'],
-    queryFn: () => import('../api').then(m => m.bucketsAPI.getNetWorth().then(r => r.data)),
-    enabled: user?.moneyMode === 'wallet',
-  });
-
   const { data: envData } = useQuery({
     queryKey: ['cash-envelope', now.getMonth() + 1, now.getFullYear()],
     queryFn: () => import('../api').then(m => m.cashAPI.getEnvelope({ month: now.getMonth() + 1, year: now.getFullYear() }).then(r => r.data)),
@@ -660,7 +654,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Feature 1 & 3: True Free Money Widget with Time Filter & Sparkline */}
+        {/* Safe to Spend + Time Tabs Widget */}
         {displayWf && (
           <div style={{
             display: 'grid',
@@ -672,7 +666,7 @@ export default function Dashboard() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Landmark size={18} className="text-vault-amber" />
-                  <h2 className="font-display font-semibold text-vault-text-primary">True Free Money</h2>
+                  <h2 className="font-display font-semibold text-vault-text-primary">Safe to Spend</h2>
                 </div>
                 {/* Time Filter Pills */}
                 <div className="flex gap-1 bg-white/05 p-1 rounded-full border border-white/10">
@@ -690,64 +684,75 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-end gap-2">
-                  <div>
-                    <p className="text-3xl font-display font-bold text-vault-amber tabular-nums">
-                      {formatINR((displayWf.income / displayWf.numberOfMonths) - (displayWf.totalCommitments / displayWf.numberOfMonths) - displayWf.variableSpending)}
-                      {displayWf.numberOfMonths > 1 && <span className="text-sm font-medium text-vault-text-muted ml-2">/mo avg</span>}
-                    </p>
-                    {/* This Month: show income state */}
-                    {tfmTab === 'this_month' && (
-                      <>
-                        {displayWf.isCarryForward ? (
-                          <div className="mt-2 flex flex-col gap-1.5 bg-[rgba(245,166,35,0.07)] border border-[rgba(245,166,35,0.2)] rounded-lg px-3 py-2">
-                            <div className="flex items-center gap-2 text-xs">
-                              <AlertTriangle size={13} className="text-vault-amber flex-shrink-0" />
-                              <span className="text-vault-text-muted">No income logged for {format(now, 'MMMM')} yet — this shows your remaining balance from last month.</span>
-                            </div>
-                            <button onClick={() => setIncomeModalOpen(true)} className="text-vault-amber text-xs font-semibold underline hover:no-underline self-start">+ Log Income</button>
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-vault-text-muted mt-1 leading-tight">
-                            💰 {formatINR(displayWf.income)} received in {format(now, 'MMMM')} ({incomeData?.entries?.length || 0} {(incomeData?.entries?.length || 0) === 1 ? 'entry' : 'entries'}) · 
-                            <button onClick={() => setIncomeModalOpen(true)} className="text-vault-amber hover:underline">Add more →</button>
-                          </p>
+              {!data?.hasAccounts ? (
+                // No accounts yet
+                <div>
+                  <p className="text-vault-text-muted text-sm mb-3 leading-relaxed">
+                    Add your bank accounts to see your real balance and spending power.
+                  </p>
+                  <Link to="/my-money" className="btn-amber text-sm px-4 py-2 rounded-vault-md inline-flex items-center gap-2" style={{ textDecoration: 'none' }}>
+                    + Add Account
+                  </Link>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {/* Main Safe to Spend number */}
+                  <div className="flex justify-between items-end gap-2">
+                    <div>
+                      <p className={`text-3xl font-display font-bold tabular-nums ${
+                        (data?.safeToSpend ?? 0) >= 0 ? 'text-vault-teal' : 'text-vault-red'
+                      }`}>
+                        {(data?.safeToSpend ?? 0) < 0 && <span className="text-xl mr-1">−</span>}
+                        <AnimatedCounter value={Math.abs(data?.safeToSpend ?? 0)} />
+                      </p>
+                      <p className="text-xs text-vault-text-muted mt-1">
+                        {formatINR(data?.totalBalance ?? 0)} total
+                        {(data?.unpaidCommitments ?? 0) > 0 && (
+                          <> · −{formatINR(data?.unpaidCommitments ?? 0)} pending bills</>
                         )}
-                      </>
+                      </p>
+                      {/* Period spend breakdown */}
+                      <p className="text-xs text-vault-text-muted mt-0.5">
+                        {formatINR(displayWf.variableSpending)} spent · {formatINR(displayWf.totalCommitments)} committed
+                      </p>
+                    </div>
+                    {/* Sparkline */}
+                    {sparklineData && sparklineData.length > 0 && (
+                      <div style={{ width: 100, height: 40 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={sparklineData}>
+                            <Line type="monotone" dataKey="value" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={true} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
                     )}
-                    <p className="text-xs text-vault-text-muted mt-1 flex flex-col gap-0.5">
-                      <span>
-                        {tfmTab === 'this_month'
-                          ? `${formatINR(displayWf.income)} ${displayWf.isCarryForward ? `Carried from ${format(new Date(now.getFullYear(), now.getMonth() - 1, 1), 'MMMM')}` : 'Received'} · ${formatINR(displayWf.totalCommitments)} Commitments · ${formatINR(displayWf.variableSpending)} Spent`
-                          : `${formatINR(displayWf.income / displayWf.numberOfMonths)} Pool/mo · ${formatINR(displayWf.totalCommitments / displayWf.numberOfMonths)} Commitments/mo · ${formatINR(displayWf.variableSpending)} Spent`
-                        }
-                      </span>
-                    </p>
                   </div>
-                  {/* Sparkline (only visible if we have data) */}
-                  {sparklineData && sparklineData.length > 0 && (
-                    <div style={{ width: 100, height: 40 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sparklineData}>
-                          <Line type="monotone" dataKey="value" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={true} />
-                        </LineChart>
-                      </ResponsiveContainer>
+
+                  {/* Account breakdown (multi-account only) */}
+                  {data?.accounts?.length > 1 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {data.accounts.map(acc => (
+                        <div key={acc._id} style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '6px 10px', borderRadius: 8,
+                          background: 'rgba(255,255,255,0.03)',
+                        }}>
+                          <span style={{ fontFamily: 'Inter', fontSize: 12, color: '#9295A8', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: acc.color || '#F5A623', display: 'inline-block', flexShrink: 0 }} />
+                            {acc.name}
+                          </span>
+                          <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: 13, color: '#EAEDF5' }}>
+                            {formatINR(acc.balance)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   )}
+
+                  <Link to="/my-money" style={{ fontFamily: 'Inter', fontSize: 11, color: '#4A4E65', textDecoration: 'none', display: 'block' }}>
+                    Manage accounts →
+                  </Link>
                 </div>
-                {user?.moneyMode === 'wallet' && nwData && (
-                  <div className="pl-6 border-l border-white/10">
-                    <p className="text-xs text-vault-text-muted uppercase tracking-wide mb-1">Safe to Spend</p>
-                    <p className={`text-3xl font-display font-bold ${nwData.safeToSpend >= 0 ? 'text-vault-teal' : 'text-vault-red'}`}>{formatINR(Math.abs(nwData.safeToSpend))}</p>
-                    <p className="text-xs text-vault-text-muted mt-1">From {formatINR(nwData.total)} net worth</p>
-                  </div>
-                )}
-              </div>
-              {user?.moneyMode === 'pool' && (
-                <p className="text-xs text-vault-text-muted mt-3">
-                  ✦ Your ₹{user?.spendingPool?.toLocaleString('en-IN')} spending pool · <Link to="/settings" className="text-vault-amber underline">Update in Settings</Link>
-                </p>
               )}
             </Card>
 

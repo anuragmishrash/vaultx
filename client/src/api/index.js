@@ -82,16 +82,16 @@ export const userAPI = {
   setHideBalance: (hide) => api.patch('/user/hide-wallet-balance', { hide }),
 };
 
-export const bucketsAPI = {
-  getAll: () => api.get('/buckets'),
-  create: (data) => api.post('/buckets', data),
-  update: (id, data) => api.put(`/buckets/${id}`, data),
-  updateBalance: (id, balance, note) => api.patch(`/buckets/${id}/balance`, { balance, note }),
-  delete: (id) => api.delete(`/buckets/${id}`),
-  transfer: (data) => api.post('/buckets/transfer', data),
-  getNetWorth: () => api.get('/buckets/net-worth'),
-  getNetWorthHistory: (months = 6) => api.get('/buckets/net-worth/history', { params: { months } }),
-  getSavingsAccuracy: (params) => api.get('/buckets/savings-accuracy', { params }),
+export const accountsAPI = {
+  getAll:       ()          => api.get('/accounts'),
+  getSummary:   ()          => api.get('/accounts/summary'),
+  create:       (data)      => api.post('/accounts', data),
+  update:       (id, data)  => api.put(`/accounts/${id}`, data),
+  updateBalance:(id, bal, note) => api.patch(`/accounts/${id}/balance`, { balance: bal, note }),
+  setDefault:   (id)        => api.patch(`/accounts/${id}/set-default`),
+  delete:       (id)        => api.delete(`/accounts/${id}`),
+  transfer:     (data)      => api.post('/accounts/transfer', data),
+  getNetWorthHistory: (months = 6) => api.get('/accounts/net-worth-history', { params: { months } }),
 };
 
 export const cashAPI = {

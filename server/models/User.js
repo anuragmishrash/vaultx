@@ -24,11 +24,12 @@ const userSchema = new mongoose.Schema({
     commitmentReminders: { type: Boolean, default: true },
   },
   commitmentCarryForward: { type: Boolean, default: false },
-  // Feature: My Money Mode
-  moneyMode: { type: String, enum: ['salary', 'pool', 'wallet'], default: 'salary' },
-  spendingPool: { type: Number, default: null },
-  spendingPoolMonth: { type: Number, default: null },
-  spendingPoolYear: { type: Number, default: null },
+  // Account-based tracking
+  defaultAccountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    default: null,
+  },
   hideWalletBalance: { type: Boolean, default: false },
 }, { timestamps: true });
 

@@ -15,26 +15,24 @@ export default function Sidebar() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const isTablet = useIsTablet();
-  const isWalletMode = user?.moneyMode === 'wallet';
-
   // On tablets, always use icon-only mode
   const collapsed = isTablet || sidebarCollapsed;
 
   const NAV_ITEMS = [
-    ...(isWalletMode ? [{ to: '/my-money', icon: Wallet, label: 'My Money' }] : []),
-    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
-    { to: '/cash-tracker', icon: Banknote, label: 'Cash Tracker' },
-    { to: '/commitments', icon: Landmark, label: 'Commitments' },
-    { to: '/regret-tracker', icon: Heart, label: 'Regret Tracker' },
-    { to: '/mood-spend', icon: Brain, label: 'Mood & Spend' },
-    { to: '/ghost-money', icon: Ghost, label: 'Ghost Money' },
-    { to: '/future-self', icon: TrendingUp, label: 'Future Self' },
-    { to: '/spend-dna', icon: Dna, label: 'Spend DNA' },
-    { to: '/zero-day', icon: Zap, label: 'Zero-Day' },
-    { to: '/guilt-free', icon: Shield, label: 'Guilt-Free' },
-    { to: '/analytics', icon: BarChart3, label: 'Analytics' },
-    { to: '/settings', icon: Settings, label: 'Settings' },
+    { to: '/my-money',    icon: Wallet,         label: 'My Money'       },
+    { to: '/dashboard',   icon: LayoutDashboard,label: 'Dashboard'      },
+    { to: '/transactions',icon: ArrowLeftRight, label: 'Transactions'   },
+    { to: '/cash-tracker',icon: Banknote,       label: 'Cash Tracker'  },
+    { to: '/commitments', icon: Landmark,       label: 'Commitments'   },
+    { to: '/regret-tracker',icon: Heart,        label: 'Regret Tracker'},
+    { to: '/mood-spend',  icon: Brain,          label: 'Mood & Spend'  },
+    { to: '/ghost-money', icon: Ghost,          label: 'Ghost Money'   },
+    { to: '/future-self', icon: TrendingUp,     label: 'Future Self'   },
+    { to: '/spend-dna',   icon: Dna,            label: 'Spend DNA'     },
+    { to: '/zero-day',    icon: Zap,            label: 'Zero-Day'      },
+    { to: '/guilt-free',  icon: Shield,         label: 'Guilt-Free'    },
+    { to: '/analytics',   icon: BarChart3,      label: 'Analytics'     },
+    { to: '/settings',    icon: Settings,       label: 'Settings'      },
   ];
 
   const handleLogout = async () => {
