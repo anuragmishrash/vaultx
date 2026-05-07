@@ -590,7 +590,7 @@ export default function Dashboard() {
                 <div className="flex justify-between items-start">
                   <div style={{ width: '100%' }}>
                     <p className="t-label" style={{ marginBottom: '6px', fontSize: '11px', color: '#9295A8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      {uiKpi?.spentLabel || 'Spent'}
+                      {data?.spentLabel || 'Spent'}
                     </p>
 
                     {/* PRIMARY NUMBER: Only regular (variable) transactions */}
@@ -792,27 +792,25 @@ export default function Dashboard() {
                           padding: '7px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)',
                         }}>
                           <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
-                            Account balance
+                            Total Balance
                           </span>
                           <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '13px', color: '#EAEDF5' }}>
                             ₹{(data?.totalBalance ?? 0).toLocaleString('en-IN')}
                           </span>
                         </div>
 
-                        {/* Row 2: Unpaid bills (the REAL deduction — money not yet gone but owed) */}
-                        {(data?.unpaidCommitments ?? 0) > 0 && (
-                          <div style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '7px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)',
-                          }}>
-                            <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#FF5C5C', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                              <span style={{ fontSize: '10px' }}>⚠</span> Unpaid bills
-                            </span>
-                            <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '13px', color: '#FF5C5C' }}>
-                              −₹{(data?.unpaidCommitments ?? 0).toLocaleString('en-IN')}
-                            </span>
-                          </div>
-                        )}
+                        {/* Row 2: Total Spent (matches user's mental model of starting balance minus all spends) */}
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '7px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)',
+                        }}>
+                          <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#FF5C5C' }}>
+                            Spent this period
+                          </span>
+                          <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '13px', color: '#FF5C5C' }}>
+                            −₹{(data?.totalMoneyOut ?? 0).toLocaleString('en-IN')}
+                          </span>
+                        </div>
 
                         {/* Result row */}
                         <div style={{
@@ -822,14 +820,14 @@ export default function Dashboard() {
                           margin: '0 -2px', paddingLeft: '2px', paddingRight: '2px',
                         }}>
                           <span style={{ fontFamily: 'Inter', fontSize: '12px', fontWeight: 600, color: '#00C9A7' }}>
-                            Safe to spend now
+                            Safe to spend
                           </span>
                           <span style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '13px', color: '#00C9A7' }}>
                             ₹{(data?.safeToSpend ?? 0).toLocaleString('en-IN')}
                           </span>
                         </div>
 
-                        {/* INFORMATIONAL SECTION — shows period-based history, clearly labeled */}
+                        {/* BREAKDOWN SECTION */}
                         <div style={{
                           marginTop: '10px', padding: '10px 12px',
                           background: 'rgba(255,255,255,0.02)',
@@ -837,12 +835,34 @@ export default function Dashboard() {
                           border: '0.5px solid rgba(255,255,255,0.06)',
                         }}>
                           <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: '0 0 7px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                            {data?.periodLabel || 'This month'} · Already spent
+                            Spend Breakdown
                           </p>
+
+                          {/* Variable Spent */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                              Regular spends
+                            </span>
+                            <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                              ₹{(data?.infoVariableSpend ?? 0).toLocaleString('en-IN')}
+                            </span>
+                          </div>
+
+                          {/* Guilt Free */}
+                          {(data?.infoGuiltFree ?? 0) > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                                Guilt-free
+                              </span>
+                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                                ₹{(data?.infoGuiltFree ?? 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          )}
 
                           {/* Commitments paid this period */}
                           {(data?.infoBillsPaid ?? 0) > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                               <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
                                 Bills paid
                               </span>

@@ -164,62 +164,63 @@ const getDashboard = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        period, periodLabel: label,
+      period, 
+      periodLabel: label,
 
-        // KPI Card 1
-        spentLabel: getSpentLabel(period),
-        displayVariableSpend,           // what shows BIG (regular transactions only)
-        billsPaid: spending.billsPaidTotal,  // shown smaller below
-        progressPct,
+      // KPI Card 1
+      spentLabel: getSpentLabel(period),
+      displayVariableSpend,
+      billsPaid: spending.billsPaidTotal,
+      progressPct,
 
-        // KPI Card 2
-        poolAmount,
-        displayRemaining,
-        isOverBudget,
-        remainingLabel,
+      // KPI Card 2
+      poolAmount,
+      displayRemaining,
+      isOverBudget,
+      remainingLabel,
 
-        // KPI 3 & 4
-        regretScore,
-        zeroDayStreak: streak,
+      // KPI 3 & 4
+      regretScore,
+      zeroDayStreak: streak,
 
-        // Safe to Spend (always current — never period-based)
-        safeToSpend,
-        totalBalance,
-        unpaidCommitments: unpaid.total,
-        unpaidItems: unpaid.items,
+      // Safe to Spend (matches user's mental model of starting balance minus all spends)
+      safeToSpend: totalBalance - spending.totalMoneyOut,
+      totalBalance,
+      unpaidCommitments: unpaid.total,
+      unpaidItems: unpaid.items,
 
-        // Informational for Safe to Spend widget breakdown
-        infoBillsPaid:     spending.billsPaidTotal,
-        infoVariableSpend: spending.variableTotal,
-        monthsOfData,
-        avgMonthlySpend:   Math.round(spending.variableTotal / monthsOfData),
+      // Informational for Safe to Spend widget breakdown
+      infoBillsPaid:     spending.billsPaidTotal,
+      infoVariableSpend: spending.variableTotal,
+      infoGuiltFree:     spending.guiltyFreeTotal,
+      totalMoneyOut:     spending.totalMoneyOut,
+      monthsOfData,
+      avgMonthlySpend:   Math.round(spending.variableTotal / monthsOfData),
 
-        // Accounts
-        hasAccounts: accounts.length > 0,
-        accounts: accounts.map(a => ({
-          _id: a._id, name: a.name, balance: a.balance,
-          isDefault: a.isDefault, color: a.color, type: a.type
-        })),
+      // Accounts
+      hasAccounts: accounts.length > 0,
+      accounts: accounts.map(a => ({
+        _id: a._id, name: a.name, balance: a.balance,
+        isDefault: a.isDefault, color: a.color, type: a.type
+      })),
 
-        // Legacy / Additional
-        categoryBreakdown,
-        dailySpend,
-        forecast: {
-          forecastTotal,
-          budget: poolAmount,
-          budgetLabel: effectiveBudget.label,
-          overshoot: (forecastTotal && poolAmount) ? forecastTotal - poolAmount : 0,
-          confidence: forecastConfidence,
-          message: forecastMessage,
-          dayOfMonth
-        },
-        pendingRegret: pendingRegret.map(t => ({
-          id: t._id, title: t.title, amount: t.amount, date: t.date, category: t.category,
-        })),
-        recentTransactions: recentTxns,
-        regretBreakdown
-      }
+      // Legacy / Additional
+      categoryBreakdown,
+      dailySpend,
+      forecast: {
+        forecastTotal,
+        budget: poolAmount,
+        budgetLabel: effectiveBudget.label,
+        overshoot: (forecastTotal && poolAmount) ? forecastTotal - poolAmount : 0,
+        confidence: forecastConfidence,
+        message: forecastMessage,
+        dayOfMonth
+      },
+      pendingRegret: pendingRegret.map(t => ({
+        id: t._id, title: t.title, amount: t.amount, date: t.date, category: t.category,
+      })),
+      recentTransactions: recentTxns,
+      regretBreakdown
     });
   } catch (err) { next(err); }
 };
