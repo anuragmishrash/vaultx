@@ -49,8 +49,18 @@ const getDashboard = async (req, res, next) => {
     const totalBalance  = accounts.reduce((s, a) => s + (a.balance || 0), 0);
     const user          = await User.findById(userId).select('monthlySalary monthlyBudget spendingPool createdAt zeroDayStreak');
     
-    const effectiveBudget = getEffectiveBudget(user);
-    const poolAmount    = effectiveBudget.amount || 0;
+    const getEffectivePool = (u, balance) => {
+      if (u?.spendingPool > 0)  return { amount: u.spendingPool,  source: 'pool',    label: 'Spending pool' };
+      if (u?.monthlyBudget > 0) return { amount: u.monthlyBudget, source: 'budget',  label: 'Monthly budget' };
+      if (u?.monthlySalary > 0) return { amount: u.monthlySalary, source: 'salary',  label: 'Monthly salary' };
+      if (balance > 0)          return { amount: balance,         source: 'balance', label: 'Account balance' };
+      return                    { amount: 0,                      source: 'none',    label: 'No reference set' };
+    };
+
+    const poolInfo   = getEffectivePool(user, totalBalance);
+    const poolAmount = poolInfo.amount;
+    const poolSource = poolInfo.source;
+    const poolLabel  = poolInfo.label;
     
     const currentMonth  = now.getMonth() + 1;
     const currentYear   = now.getFullYear();
@@ -133,20 +143,19 @@ const getDashboard = async (req, res, next) => {
     });
 
     const daysInMonth  = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dayOfMonth = now.getDate();
     const chartDaysInMonth = period === 'last_month'
       ? new Date(mStart.getFullYear(), mStart.getMonth() + 1, 0).getDate()
-      : daysInMonth;
+      : (period === 'this_month' ? dayOfMonth : daysInMonth);
 
-    const dayOfMonth = now.getDate();
     const dailySpend = [];
     for (let d = 1; d <= chartDaysInMonth; d++) {
-      const isFuture = period === 'this_month' && d > dayOfMonth;
       let cumulative = 0;
       for (let i = 1; i <= d; i++) cumulative += dailyMap[i] || 0;
       dailySpend.push({
         day:        d,
-        amount:     isFuture ? null : (dailyMap[d] || 0),
-        cumulative: isFuture ? null : cumulative,
+        amount:     dailyMap[d] || 0,
+        cumulative: cumulative,
       });
     }
 
@@ -175,6 +184,8 @@ const getDashboard = async (req, res, next) => {
 
       // KPI Card 2
       poolAmount,
+      poolLabel,
+      poolSource,
       displayRemaining,
       isOverBudget,
       remainingLabel,
@@ -210,7 +221,7 @@ const getDashboard = async (req, res, next) => {
       forecast: {
         forecastTotal,
         budget: poolAmount,
-        budgetLabel: effectiveBudget.label,
+        budgetLabel: poolLabel,
         overshoot: (forecastTotal && poolAmount) ? forecastTotal - poolAmount : 0,
         confidence: forecastConfidence,
         message: forecastMessage,

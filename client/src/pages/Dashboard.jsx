@@ -667,30 +667,35 @@ export default function Dashboard() {
                 <p className="t-label" style={{ marginBottom: '8px', fontSize: '11px', color: '#9295A8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   {data?.remainingLabel || uiKpi?.remainingLabel || 'Pool remaining'}
                 </p>
-                {budget && data?.displayRemaining !== undefined && data?.displayRemaining !== null ? (
+                {(data?.poolAmount ?? 0) > 0 ? (
                   <>
                     <p className="t-metric tabular-nums" style={{
-                      color: data.displayRemaining >= 0 ? '#00C9A7' : '#FF5C5C',
-                      textShadow: data.displayRemaining >= 0 ? '0 0 24px rgba(0,201,167,0.3)' : '0 0 24px rgba(255,92,92,0.35)',
+                      color: (data?.displayRemaining ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C',
+                      textShadow: (data?.displayRemaining ?? 0) >= 0 ? '0 0 24px rgba(0,201,167,0.3)' : '0 0 24px rgba(255,92,92,0.35)',
                       marginBottom: '6px',
                       lineHeight: 1,
                       fontSize: '28px',
                       fontFamily: 'Outfit',
                       fontWeight: 700
                     }}>
-                      ₹{Math.abs(data.displayRemaining).toLocaleString('en-IN')}
+                      ₹{Math.abs(data?.displayRemaining ?? 0).toLocaleString('en-IN')}
                     </p>
                     {tfmTab !== 'all_time' && (
-                      <p style={{ fontFamily: 'Inter', fontSize: '12px', color: data.displayRemaining >= 0 ? '#00C9A7' : '#FF5C5C', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {data.displayRemaining >= 0 ? <><TrendingDown size={12} /> Under budget</> : <><TrendingUp size={12} /> Over budget</>}
+                      <p style={{ fontFamily: 'Inter', fontSize: '12px', color: (data?.displayRemaining ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {(data?.displayRemaining ?? 0) >= 0 ? <><TrendingDown size={12} /> Under budget</> : <><TrendingUp size={12} /> Over budget</>}
                       </p>
                     )}
                     <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
-                      Discretionary only · Pool ₹{(data?.poolAmount ?? budget).toLocaleString('en-IN')}
+                      {data?.poolLabel || 'Pool'}: ₹{(data?.poolAmount ?? 0).toLocaleString('en-IN')}
                     </p>
                   </>
                 ) : (
-                  <p className="kpi-number" style={{ color: '#4A4E65' }}>—</p>
+                  <div>
+                    <p className="t-metric" style={{ color:'#4A4E65', marginBottom:'8px' }}>—</p>
+                    <Link to="/settings" style={{ fontFamily:'Inter', fontSize:'11px', color:'#F5A623', textDecoration:'none' }}>
+                      Set a budget in Settings →
+                    </Link>
+                  </div>
                 )}
               </Card>
             </motion.div>
@@ -731,6 +736,7 @@ export default function Dashboard() {
             gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '14px',
             marginBottom: '14px',
+            alignItems: 'start',
           }}>
             <Card glow="amber">
               <div className="flex items-center justify-between mb-3">
@@ -1116,7 +1122,15 @@ export default function Dashboard() {
                         </linearGradient>
                       </defs>
                       <CartesianGrid {...chartDefaults.grid} />
-                      <XAxis dataKey="day" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} interval={4} />
+                      <XAxis 
+                        dataKey="day" 
+                        domain={[1, chartData?.length || 1]} 
+                        type="number" 
+                        tickCount={Math.min(chartData?.length || 1, 7)}
+                        tick={{ fill: '#4A4E65', fontSize: 11, fontFamily: 'Inter' }} 
+                        axisLine={false} 
+                        tickLine={false} 
+                      />
                       <YAxis hide={true} domain={[0, 'auto']} />
                       <Tooltip 
                         formatter={(value, name) => [

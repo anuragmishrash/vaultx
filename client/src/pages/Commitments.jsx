@@ -288,13 +288,12 @@ export default function Commitments() {
             <div className="space-y-3">{[...Array(6)].map((_, i) => <div key={i} className="skeleton h-8 rounded" />)}</div>
           ) : wf ? (
             <div className="flex flex-col">
-              <WaterfallRow label="Monthly Income" value={wf.income} type="income" />
-              <WaterfallRow label="Fixed Commitments" value={wf.totalCommitments} type="commitment" isSubtraction />
-              <WaterfallRow label="Committed Balance" value={wf.committedBalance} type="neutral" />
-              <WaterfallRow label="Variable Spending" value={wf.variableSpending} type="variable" isSubtraction />
-              <WaterfallRow label="True Free Money" value={wf.trueFreeMonney} type="freeMonney" isHero />
-              <WaterfallRow label="Guilt-Free Used" value={wf.guiltyFreeUsed} type="guiltyFree" isSubtraction />
-              <WaterfallRow label="Investable Surplus 💰" value={wf.investableSurplus} type="surplus" />
+              <WaterfallRow label="Account Balance" value={wf.waterfall?.totalBalance} type="income" />
+              <WaterfallRow label="Unpaid Bills" value={wf.waterfall?.totalUnpaid} type="commitment" isSubtraction />
+              <WaterfallRow label="Safe to Spend" value={wf.waterfall?.safeToSpend} type="freeMonney" isHero />
+              <WaterfallRow label="Regular Spends" value={wf.waterfall?.variableSpending} type="variable" isSubtraction />
+              <WaterfallRow label="Guilt-Free Spends" value={wf.waterfall?.guiltyFreeUsed} type="guiltyFree" isSubtraction />
+              <WaterfallRow label="Investable Surplus 💰" value={wf.waterfall?.investableSurplus} type="surplus" />
             </div>
           ) : null}
           {wf && (

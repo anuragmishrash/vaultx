@@ -51,8 +51,11 @@ const computeWaterfall = async (userId, month, year) => {
   // Health score computation
   let healthScore = 100;
   const commitmentRatio = income > 0 ? totalCommitments / income : 0;
-  if (commitmentRatio > 0.65) healthScore -= 15;
-  else if (commitmentRatio > 0.5) healthScore -= 10;
+  
+  if (income > 0) {
+    if (commitmentRatio > 0.70) healthScore -= 15;
+    else if (commitmentRatio > 0.50) healthScore -= 5;
+  }
 
   const today = new Date();
   const todayDay = today.getDate();
@@ -60,19 +63,25 @@ const computeWaterfall = async (userId, month, year) => {
   const currentYear = today.getFullYear();
 
   const overdueCommitments = [];
+  let missedCount = 0;
+  
   if (month === currentMonth && year === currentYear) {
     activeCommitments.forEach(c => {
       const log = logs.find(l => l.commitmentId.toString() === c._id.toString());
-      if (c.priority === 'critical' && !log?.isPaid && todayDay > c.dueDay) {
+      if (!log?.isPaid && todayDay > c.dueDay) {
         overdueCommitments.push(c);
-        healthScore -= 20;
+        missedCount++;
       }
     });
   }
 
+  if (missedCount > 0) {
+    healthScore -= (missedCount * 20); // -20 per missed payment
+  }
+
   const paidCount = logs.filter(l => l.isPaid).length;
-  if (paidCount === activeCommitments.length && paidCount > 0 && todayDay <= 10) {
-    healthScore += 5;
+  if (paidCount === activeCommitments.length && activeCommitments.length > 0) {
+    healthScore = Math.min(100, healthScore + 10);
   }
 
   healthScore = Math.max(0, Math.min(100, healthScore));

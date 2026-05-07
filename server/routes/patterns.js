@@ -75,7 +75,7 @@ router.post('/batch-confirm', protect, async (req, res) => {
         normalizedTitle: pattern.normalizedTitle, amount,
         category: pattern.category, paymentMode: pattern.paymentMode || 'UPI',
         date: new Date(), regretStatus: 'pending',
-        isGuiltyFreeSpend: pattern.suggestionType === 'guilt_free',
+        isGuiltyFreeSpend: pattern.patternType === 'guilt_free_habit',
         note: 'Added via batch daily',
       });
       await tx.save();
@@ -144,7 +144,7 @@ router.post('/confirm/:patternId', protect, async (req, res) => {
       amount: req.body.amount || pattern.amount,
       category: pattern.category, paymentMode: pattern.paymentMode || 'UPI',
       date: new Date(),
-      isGuiltyFreeSpend: pattern.suggestionType === 'guilt_free',
+      isGuiltyFreeSpend: pattern.patternType === 'guilt_free_habit',
       isCommitmentPayment: pattern.suggestionType === 'commitment',
       note: 'Added via smart suggestion',
       regretStatus: 'pending',

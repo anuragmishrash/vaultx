@@ -280,34 +280,23 @@ const getWaterfall = async (req, res, next) => {
     ]);
     const guiltyFreeUsed = guiltyFreeResult[0]?.total || 0;
 
-    // CORRECT WATERFALL:
-    // Account Balance
-    // − Bills Paid This Month (actual paid)
-    // − Variable Spending
-    // = Remaining
-    // − Unpaid Bills (still owed)
-    // = Safe to Spend
-
-    const afterBillsPaid = totalBalance - totalPaid;
-    const afterVarible   = afterBillsPaid - variableSpending;
-    const safeToSpend    = afterVarible - totalUnpaid;
+    // New Mathematical Flow (Account-Balance Driven)
+    const safeToSpend = totalBalance - totalUnpaid; // True free money after locking away unpaid bills
+    const investableSurplus = safeToSpend - variableSpending - guiltyFreeUsed; 
 
     res.json({
       success: true,
       data: {
         month, year,
-        totalBalance,
-        totalPaid,        // what you've actually paid in bills this month
-        totalUnpaid,      // what you still owe in bills this month
-        totalExpected,    // what you OWE total per month (all commitments)
-        variableSpending,
-        guiltyFreeUsed,
-        afterBillsPaid,
-        afterVarible,
-        safeToSpend,
-        commitmentsPaidCount: enriched.filter(c => c.isPaid).length,
-        commitmentsTotal: commitments.length,
-        allCommitments: enriched,
+        waterfall: {
+          totalBalance,
+          totalUnpaid,
+          safeToSpend,
+          variableSpending,
+          guiltyFreeUsed,
+          investableSurplus
+        },
+        commitments: enriched
       }
     });
   } catch (err) { next(err); }
@@ -329,8 +318,13 @@ const getAffordability = async (req, res, next) => {
     const commitmentRatio = income > 0 ? (totalCommitments / income) * 100 : 0;
 
     // Due date clustering (Feature 6)
+    const logsThisMonth = await CommitmentLog.find({ userId, month, year });
+
     const dueClusters = {};
     for (const c of commitments) {
+      const log = logsThisMonth.find(l => l.commitmentId.toString() === c._id.toString());
+      if (log?.isPaid) continue; // Skip already paid commitments
+
       const day = c.dueDay;
       if (!dueClusters[day]) dueClusters[day] = [];
       dueClusters[day].push(c);

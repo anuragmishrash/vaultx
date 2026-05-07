@@ -98,8 +98,22 @@ export default function AddTransactionModal({ isOpen, onClose, editTx }) {
         setValue('tags', editTx.tags?.join(', ') || '');
         setCategoryManuallySet(true);
       } else {
-        // Fix 5: Ensure Guilt-Free flag is always default false on new opens
-        setValue('isGuiltyFreeSpend', false);
+        // Reset all fields for new transaction
+        reset({
+          title: '',
+          amount: '',
+          category: 'Others',
+          paymentMode: 'UPI',
+          date: format(new Date(), 'yyyy-MM-dd'),
+          note: '',
+          isRecurring: false,
+          recurringLabel: '',
+          isGuiltyFreeSpend: false,
+          isCashSpend: false,
+          tags: ''
+        });
+        setCategoryManuallySet(false);
+        setAutoFillApplied(false);
       }
     }
   }, [editTx, isOpen, setValue]);
