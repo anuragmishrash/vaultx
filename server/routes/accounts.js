@@ -24,26 +24,20 @@ router.get('/summary', protect, async (req, res, next) => {
     const accounts = await Account.find({ userId, isActive: true });
     const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
 
+    const { getSpendingForPeriod } = require('../utils/spendCalculator');
     const now = new Date();
-    const month = now.getMonth() + 1;
-    const year  = now.getFullYear();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    // Get unpaid commitments this month
-    const commitments = await Commitment.find({ userId, isActive: true });
-    const paidLogs = await CommitmentLog.find({ userId, month, year, isPaid: true });
-    const paidIds  = new Set(paidLogs.map(l => l.commitmentId?.toString()));
-    const unpaidTotal = commitments
-      .filter(c => !paidIds.has(c._id.toString()))
-      .reduce((s, c) => s + c.amount, 0);
-
-    const safeToSpend = totalBalance - unpaidTotal;
+    const spending = await getSpendingForPeriod(userId, start, end);
+    const safeToSpend = totalBalance - spending.totalMoneyOut;
 
     res.json({
       success: true,
       data: {
         totalBalance,
         safeToSpend,
-        unpaidCommitments: unpaidTotal,
+        spentThisMonth: spending.totalMoneyOut,
         hasAccounts: accounts.length > 0,
         accounts: accounts.map(a => ({
           _id:       a._id,
