@@ -113,7 +113,7 @@ const getDashboard = async (req, res, next) => {
     const pendingRegret = await Transaction.find({ userId, regretStatus: 'pending', date: { $lte: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, isCommitmentPayment: { $ne: true } }).sort({ date: -1 }).limit(10);
     const recentTxns = await Transaction.find({ userId, isCommitmentPayment: { $ne: true } }).sort({ createdAt: -1 }).limit(5);
 
-    const calculateCurrentStreak = require('../utils/streakCalculator');
+    const { calculateCurrentStreak } = require('../utils/zeroDayEngine');
     const streak      = await calculateCurrentStreak(userId);
 
     // Chart logic
