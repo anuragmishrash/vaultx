@@ -496,35 +496,44 @@ export default function Dashboard() {
   const budgetLabel = kpi?.budgetLabel || 'No budget set';
   const forecastOvershoot = forecast?.overshoot || 0;
 
-  // uiKpi — reads from API response (which now includes commitment payments in totalSpent)
+  // uiKpi — reads pre-computed values from the API.
+  // Backend scales pool/remaining correctly per period (fixes All Time "Over budget").
   const uiKpi = useMemo(() => {
     if (!data?.kpi) return null;
-    const kpiData = data.kpi;
+    const kpiData    = data.kpi;
     const baseBudget = kpiData.budget || 0;
-    const spentValue = kpiData.displaySpent ?? kpiData.totalSpent ?? 0;
-    const poolLeft   = kpiData.poolRemaining ?? (baseBudget ? baseBudget - spentValue : null);
-    const progressPct = baseBudget > 0 ? Math.min(Math.round((spentValue / baseBudget) * 100), 100) : 0;
+    // displaySpent = monthly avg for 3_months, raw total otherwise
+    const spentValue  = kpiData.displaySpent ?? kpiData.totalSpent ?? 0;
+    // poolRemaining is already period-scaled and averaged by backend
+    const poolLeft    = kpiData.poolRemaining;
+    // progressPct accounts for period pool — no false 100% for All Time
+    const progressPct = kpiData.progressPct ?? kpiData.budgetPercent ?? 0;
 
     const labels = {
-      this_month: { spent: 'SPENT THIS MONTH', pool: 'POOL REMAINING', note: `Pool: ${formatINR(baseBudget)}` },
-      last_month: { spent: 'SPENT LAST MONTH', pool: 'LAST MONTH REMAINING', note: `Pool: ${formatINR(baseBudget)}` },
-      '3_months': { spent: 'AVG MONTHLY SPEND', pool: 'AVG MONTHLY REMAINING', note: `Monthly avg · ${formatINR(baseBudget)} pool` },
-      all_time:   { spent: 'TOTAL SPENT', pool: 'AVG MONTHLY REMAINING', note: 'Since account created' }
-    }[tfmTab] || { spent: 'SPENT', pool: 'REMAINING', note: '' };
+      this_month: { pool: 'POOL REMAINING',        note: baseBudget ? `Pool: ${formatINR(baseBudget)}` : 'No budget set' },
+      last_month: { pool: 'LAST MONTH REMAINING',  note: baseBudget ? `Pool: ${formatINR(baseBudget)}` : '' },
+      '3_months': { pool: 'AVG MONTHLY REMAINING', note: baseBudget ? `Monthly avg · ${formatINR(baseBudget)} pool` : 'Monthly avg' },
+      all_time:   { pool: 'AVG MONTHLY REMAINING', note: 'Since account created' },
+    }[tfmTab] || { pool: 'REMAINING', note: '' };
 
     return {
-      spentLabel:  labels.spent,
-      poolLabel:   labels.pool,
+      spentLabel:            data.spentLabel || 'SPENT',
+      remainingLabel:        data.remainingLabel || labels.pool,
+      poolLabel:             labels.pool,
       spentValue,
-      poolLine:    labels.note,
-      poolLeft:    poolLeft ?? 0,
+      poolLine:              labels.note,
+      poolLeft:              poolLeft ?? null,
       progressPct,
       variableSpend:         kpiData.variableSpend ?? 0,
       commitmentsPaidAmount: kpiData.commitmentsPaidAmount ?? 0,
     };
   }, [data, tfmTab]);
 
-  const budgetColor = !budget ? '#4A4E65' : (uiKpi?.progressPct ?? budgetPct) < 60 ? '#00C896' : (uiKpi?.progressPct ?? budgetPct) < 85 ? '#F5A623' : '#FF5A5A';
+  const budgetColor = !budget ? '#4A4E65'
+    : (uiKpi?.progressPct ?? budgetPct) < 60 ? '#00C896'
+    : (uiKpi?.progressPct ?? budgetPct) < 85 ? '#F5A623'
+    : '#FF5A5A';
+
 
   const dayOfMonth = new Date().getDate();
   const forecastConf = forecast?.confidence;
@@ -601,23 +610,25 @@ export default function Dashboard() {
               </Card>
             </motion.div>
 
-            {/* Budget Remaining */}
+            {/* Pool Remaining */}
             <motion.div variants={listItem}>
               <Card className="kpi-card-budget">
                 <p className="text-xs text-vault-text-muted uppercase tracking-wide mb-1">
-                  {uiKpi?.poolLabel || 'Pool remaining'}
+                  {uiKpi?.remainingLabel || uiKpi?.poolLabel || 'Pool remaining'}
                 </p>
-                {budget ? (
+                {budget && uiKpi?.poolLeft !== null ? (
                   <>
-                    <p className="kpi-number mb-2" style={{ 
-                      color: (uiKpi?.poolLeft ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C',
-                      textShadow: (uiKpi?.poolLeft ?? 0) >= 0 ? '0 0 24px rgba(0,201,167,0.3)' : '0 0 24px rgba(255,92,92,0.35)'
+                    <p className="kpi-number mb-2" style={{
+                      color: (uiKpi.poolLeft ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C',
+                      textShadow: (uiKpi.poolLeft ?? 0) >= 0 ? '0 0 24px rgba(0,201,167,0.3)' : '0 0 24px rgba(255,92,92,0.35)',
                     }}>
-                      <AnimatedCounter value={Math.abs(uiKpi?.poolLeft || 0)} />
+                      <AnimatedCounter value={Math.abs(uiKpi.poolLeft ?? 0)} />
                     </p>
-                    <p className="text-xs mt-2" style={{ color: (uiKpi?.poolLeft ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C' }}>
-                      {(uiKpi?.poolLeft || 0) < 0
+                    <p className="text-xs mt-2" style={{ color: (uiKpi.poolLeft ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C' }}>
+                      {(uiKpi.poolLeft ?? 0) < 0
                         ? <span className="flex items-center gap-1"><TrendingUp size={12} /> Over budget</span>
+                        : (uiKpi.poolLeft ?? 0) < (budget * 0.2)
+                        ? <span className="flex items-center gap-1">⚠ Running low</span>
                         : <span className="flex items-center gap-1"><TrendingDown size={12} /> Under budget</span>
                       }
                     </p>
@@ -627,6 +638,7 @@ export default function Dashboard() {
                 )}
               </Card>
             </motion.div>
+
 
 
             {/* Regret Score Breakdown */}
@@ -701,43 +713,55 @@ export default function Dashboard() {
                   {/* Main Safe to Spend number */}
                   <div className="flex justify-between items-end gap-2">
                     <div>
+                      {/* Big Safe to Spend number */}
                       <p style={{
-                        fontFamily: 'Outfit',
-                        fontSize: '32px',
-                        fontWeight: 700,
-                        margin: 0,
+                        fontFamily: 'Outfit', fontSize: '32px', fontWeight: 700, margin: 0,
                         color: (data?.safeToSpend ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C',
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        gap: '4px'
+                        display: 'flex', alignItems: 'baseline', gap: '4px',
                       }} className="tabular-nums">
                         {(data?.safeToSpend ?? 0) < 0 && <span style={{ fontSize: '20px' }}>−</span>}
                         <AnimatedCounter value={Math.abs(data?.safeToSpend ?? 0)} />
                       </p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
-                        <p style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8', margin: 0 }}>
-                          {formatINR(data?.totalBalance ?? 0)} account balance
-                        </p>
+
+                      {/* Breakdown: Balance − Unpaid = Safe to Spend */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '10px' }}>
+                        {/* Row 1: Account balance */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>Account balance</span>
+                          <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '12px', color: '#EAEDF5' }}>
+                            {formatINR(data?.totalBalance ?? 0)}
+                          </span>
+                        </div>
+
+                        {/* Row 2: Unpaid bills (only if any exist) */}
                         {(data?.unpaidCommitments ?? 0) > 0 && (
-                          <p style={{ fontFamily: 'Inter', fontSize: '12px', color: '#FF5C5C', margin: 0 }}>
-                            −{formatINR(data?.unpaidCommitments ?? 0)} unpaid bills
-                          </p>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#FF5C5C' }}>
+                              − Unpaid bills ({data?.unpaidItems?.length ?? ''})
+                            </span>
+                            <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '12px', color: '#FF5C5C' }}>
+                              −{formatINR(data?.unpaidCommitments ?? 0)}
+                            </span>
+                          </div>
                         )}
-                        <div style={{ height: '0.5px', background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
-                        <p className="text-xs text-vault-text-muted">
-                          {uiKpi?.variableSpend > 0 && `${formatINR(uiKpi.variableSpend)} variable spend`}
-                          {uiKpi?.variableSpend > 0 && uiKpi?.commitmentsPaidAmount > 0 && ' · '}
+
+                        {/* Divider */}
+                        <div style={{ height: '0.5px', background: 'rgba(255,255,255,0.08)', margin: '3px 0' }} />
+
+                        {/* Period context: bills paid + variable this period */}
+                        <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
                           {uiKpi?.commitmentsPaidAmount > 0 && `${formatINR(uiKpi.commitmentsPaidAmount)} bills paid`}
-                          {(uiKpi?.variableSpend ?? 0) === 0 && (uiKpi?.commitmentsPaidAmount ?? 0) === 0 && 'No spends recorded'}
+                          {uiKpi?.commitmentsPaidAmount > 0 && uiKpi?.variableSpend > 0 && ' · '}
+                          {uiKpi?.variableSpend > 0 && `${formatINR(uiKpi.variableSpend)} variable`}
+                          {(uiKpi?.variableSpend ?? 0) === 0 && (uiKpi?.commitmentsPaidAmount ?? 0) === 0 && 'No spends yet'}
                           {` · ${data?.periodLabel || 'this month'}`}
                         </p>
                       </div>
-
-
                     </div>
+
                     {/* Sparkline */}
                     {sparklineData && sparklineData.length > 0 && (
-                      <div style={{ width: 100, height: 40 }}>
+                      <div style={{ width: 100, height: 40, flexShrink: 0 }}>
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={sparklineData}>
                             <Line type="monotone" dataKey="value" stroke="#f59e0b" strokeWidth={2} dot={false} isAnimationActive={true} />
@@ -746,6 +770,7 @@ export default function Dashboard() {
                       </div>
                     )}
                   </div>
+
 
                   {/* Account breakdown (multi-account only) */}
                   {data?.accounts?.length > 1 && (

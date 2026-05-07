@@ -121,17 +121,18 @@ export default function Transactions() {
   const { data: todayTitles } = useQuery({
     queryKey: ['today-titles'],
     queryFn: async () => {
-      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const res = await transactionsAPI.getAll({
-        startDate: todayStart.toISOString(),
-        endDate: todayEnd.toISOString(),
+        startDate: todayStr,
+        endDate:   todayStr,
         limit: 200,
       });
       return new Set((res.data.transactions || []).map(t => t.normalizedTitle || t.title?.toLowerCase().trim()));
     },
     staleTime: 30000,
   });
+
 
   const rateMutation = useMutation({
     mutationFn: ({ id, rating }) => transactionsAPI.rateRegret(id, rating),
@@ -376,21 +377,35 @@ export default function Transactions() {
 
         {/* Stats summary */}
         {data && (
-          <div className="flex items-center gap-3 text-xs text-vault-text-muted flex-wrap">
-            <span>{data?.pagination?.total || 0} transactions</span>
-            <span>•</span>
-            <span>Total: <span className="text-vault-text-primary font-medium">{formatINR(data?.transactions?.reduce((s, t) => s + t.amount, 0) || 0)}</span></span>
-            {activeMonthFilter !== 'all' && (
-              <span style={{ color: '#4A4E65' }}>
-                {activeMonthFilter === 'this_month' ? 'this month' :
-                 activeMonthFilter === 'last_month' ? 'last month' : 'last 3 months'}
-              </span>
-            )}
-            {activeMonthFilter === 'all' && (
-              <span style={{ color: '#F5A623' }}>all time</span>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3 text-xs text-vault-text-muted flex-wrap">
+              <span>{data?.pagination?.total || 0} transactions</span>
+              <span>•</span>
+              {/* Use backend totalMoneyOut if available — matches Dashboard "Spent" */}
+              <span>Total: <span style={{ fontFamily: 'Outfit', fontWeight: 600, color: '#EAEDF5' }}>
+                {formatINR(data?.summary?.totalMoneyOut ?? data?.transactions?.reduce((s, t) => s + t.amount, 0) ?? 0)}
+              </span></span>
+              {activeMonthFilter !== 'all' && (
+                <span style={{ color: '#4A4E65' }}>
+                  {activeMonthFilter === 'this_month' ? 'this month' :
+                   activeMonthFilter === 'last_month' ? 'last month' : 'last 3 months'}
+                </span>
+              )}
+              {activeMonthFilter === 'all' && (
+                <span style={{ color: '#F5A623' }}>all time</span>
+              )}
+            </div>
+            {/* Bills paid breakdown — only show when there are commitment payments */}
+            {(data?.summary?.billsPaidTotal ?? 0) > 0 && (
+              <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
+                {formatINR(data.summary.variableTotal)} regular
+                {' + '}
+                {formatINR(data.summary.billsPaidTotal)} bills paid
+              </p>
             )}
           </div>
         )}
+
 
         {/* Transaction list */}
         {isLoading ? (

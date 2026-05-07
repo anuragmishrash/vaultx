@@ -4,6 +4,7 @@ const User = require('../models/User');
 const { Parser } = require('json2csv');
 const { findMatchingCommitment } = require('../utils/brainEngine');
 const { invalidateAndRefresh } = require('../utils/zeroDayEngine');
+const { parseDateParams, getSpendingForPeriod } = require('../utils/spendCalculator');
 
 // ── helper: deduct from account after a spend ────────────────────────────────
 async function deductFromAccount(accountId, userId, amount, note) {
@@ -58,14 +59,23 @@ const getTransactions = async (req, res, next) => {
     if (regret) query.regretStatus = regret;
     if (isCashSpend === 'true') query.isCashSpend = true;
     if (req.query.isGuiltyFreeSpend === 'true') query.isGuiltyFreeSpend = true;
+
+    // ── Date filter — always use LOCAL-time boundaries to avoid UTC day-shift bug ──
+    let periodStart = null, periodEnd = null;
     if (month && year) {
       const m = parseInt(month), y = parseInt(year);
-      query.date = { $gte: new Date(y, m - 1, 1), $lte: new Date(y, m, 0, 23, 59, 59, 999) };
+      periodStart = new Date(y, m - 1, 1, 0, 0, 0, 0);
+      periodEnd   = new Date(y, m, 0, 23, 59, 59, 999);
+      query.date  = { $gte: periodStart, $lte: periodEnd };
     } else if (startDate || endDate) {
-      query.date = {};
-      if (startDate) query.date.$gte = new Date(startDate + 'T00:00:00.000Z');
-      if (endDate) query.date.$lte = new Date(endDate + 'T23:59:59.999Z');
+      const bounds = parseDateParams({ startDate, endDate });
+      periodStart  = bounds.start || null;
+      periodEnd    = bounds.end   || null;
+      query.date   = {};
+      if (periodStart) query.date.$gte = periodStart;
+      if (periodEnd)   query.date.$lte = periodEnd;
     }
+
     if (minAmount || maxAmount) {
       query.amount = {};
       if (minAmount) query.amount.$gte = parseFloat(minAmount);
@@ -74,19 +84,33 @@ const getTransactions = async (req, res, next) => {
     if (search) {
       query.$or = [
         { title: { $regex: search, $options: 'i' } },
-        { note: { $regex: search, $options: 'i' } },
+        { note:  { $regex: search, $options: 'i' } },
       ];
     }
 
-    const sortObj = { [sort]: order === 'desc' ? -1 : 1 };
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const total = await Transaction.countDocuments(query);
+    const sortObj    = { [sort]: order === 'desc' ? -1 : 1 };
+    const skip       = (parseInt(page) - 1) * parseInt(limit);
+    const total      = await Transaction.countDocuments(query);
     const transactions = await Transaction.find(query).sort(sortObj).skip(skip).limit(parseInt(limit));
+
+    // ── Spending summary using the same logic as dashboard ──────────────────
+    //    Only compute when a date range is active (so the total is meaningful)
+    let summary = null;
+    if (periodStart && periodEnd) {
+      const spending = await getSpendingForPeriod(req.user._id, periodStart, periodEnd);
+      summary = {
+        totalMoneyOut:  spending.totalMoneyOut,
+        variableTotal:  spending.variableTotal,
+        billsPaidTotal: spending.billsPaidTotal,
+        count:          total,
+      };
+    }
 
     res.json({
       success: true,
       transactions,
-      pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) }
+      summary,
+      pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) },
     });
   } catch (err) {
     next(err);
