@@ -194,7 +194,7 @@ const getDashboard = async (req, res, next) => {
       regretScore,
       zeroDayStreak: streak,
 
-      // Safe to Spend (matches user's mental model of starting balance minus all spends)
+      // Safe to Spend = Balance − all money out this period
       safeToSpend: totalBalance - spending.totalMoneyOut,
       totalBalance,
       unpaidCommitments: unpaid.total,
