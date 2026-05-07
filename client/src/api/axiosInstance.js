@@ -43,6 +43,11 @@ api.interceptors.response.use(
   async (error) => {
     const original = error.config;
 
+    // Don't retry on 429 — just propagate the error
+    if (error.response?.status === 429) {
+      return Promise.reject(error);
+    }
+
     // Retry on any 401 except the refresh-token endpoint itself
     if (
       error.response?.status === 401 &&

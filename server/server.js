@@ -30,7 +30,24 @@ app.use(cors({
   ],
   credentials: true,
 }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500, message: 'Too many requests' }));
+// Global rate limit — generous cap for normal dashboard usage
+app.use(rateLimit({ 
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 1000,                  // raised from 500
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests, please wait a moment and try again.' },
+  skip: (req) => req.path.startsWith('/api/auth'), // auth gets its own limiter below
+}));
+
+// Auth-specific limiter — higher allowance because refresh-token is called on every page load
+app.use('/api/auth', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,                   // 200 auth calls per 15 min per IP (plenty for normal use)
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login attempts, please wait a few minutes.' },
+}));
 
 // Parsing
 app.use(express.json({ limit: '10mb' }));
