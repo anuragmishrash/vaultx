@@ -258,13 +258,11 @@ const getDashboard = async (req, res, next) => {
       recentTransactions: recentTxns,
       regretBreakdown,
 
-      // ── SAFE TO SPEND (always current, never period-based) ─────────────
-      //    Formula: Account Balance − Unpaid bills only.
-      //    Paid bills are already reflected in the balance. Don't subtract twice.
+      // ── SAFE TO SPEND ───────────────────────────────────────────────────
       totalBalance,
       safeToSpend,
-      unpaidCommitments: unpaid.total,
-      unpaidItems: unpaid.items.map(c => ({ _id: c._id, title: c.title, amount: c.amount, dueDay: c.dueDay })),
+      unpaidCommitments: 0,
+      unpaidItems: [],
       hasAccounts,
       accounts: accounts.map(a => ({
         _id: a._id, name: a.name, type: a.type,
@@ -375,17 +373,16 @@ const getTfm = async (req, res, next) => {
 
     const currentMonth = now.getMonth() + 1;
     const currentYear  = now.getFullYear();
-    const unpaid       = await getUnpaidCommitmentsForMonth(req.user._id, currentMonth, currentYear);
-    const safeToSpend  = totalBalance - unpaid.total;
 
     const spending = await getSpendingForPeriod(req.user._id, start, end);
+    const safeToSpend  = totalBalance - spending.totalMoneyOut;
 
     res.json({
       success: true,
       totalBalance,
       hasAccounts,
       safeToSpend,
-      unpaidCommitments: unpaid.total,
+      unpaidCommitments: 0,
       commitmentsTotal:  spending.billsPaidTotal,
       variableSpend:     spending.variableTotal,
       trueFreeMoney:     safeToSpend - spending.variableTotal,
