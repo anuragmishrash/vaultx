@@ -377,31 +377,57 @@ export default function Transactions() {
 
         {/* Stats summary */}
         {data && (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3 text-xs text-vault-text-muted flex-wrap">
-              <span>{data?.pagination?.total || 0} transactions</span>
-              <span>•</span>
-              {/* Use backend totalMoneyOut if available — matches Dashboard "Spent" */}
-              <span>Total: <span style={{ fontFamily: 'Outfit', fontWeight: 600, color: '#EAEDF5' }}>
-                {formatINR(data?.summary?.totalMoneyOut ?? data?.transactions?.reduce((s, t) => s + t.amount, 0) ?? 0)}
-              </span></span>
-              {activeMonthFilter !== 'all' && (
-                <span style={{ color: '#4A4E65' }}>
-                  {activeMonthFilter === 'this_month' ? 'this month' :
-                   activeMonthFilter === 'last_month' ? 'last month' : 'last 3 months'}
-                </span>
-              )}
-              {activeMonthFilter === 'all' && (
-                <span style={{ color: '#F5A623' }}>all time</span>
-              )}
+          <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'14px', flexWrap:'wrap' }}>
+            {/* Transaction count */}
+            <span style={{ fontFamily:'Inter', fontSize:'13px', color:'#9295A8' }}>
+              {data?.pagination?.total || 0} transaction{(data?.pagination?.total !== 1) ? 's' : ''}
+            </span>
+
+            <span style={{ color:'#2E3047' }}>·</span>
+
+            {/* Regular spend — primary */}
+            <div style={{ display:'flex', alignItems:'center', gap:'4px' }}>
+              <span style={{ fontFamily:'Inter', fontSize:'12px', color:'#9295A8' }}>Regular:</span>
+              <span style={{ fontFamily:'Outfit', fontWeight:700, fontSize:'14px', color:'#EAEDF5' }}>
+                ₹{(data?.summary?.variableTotal ?? 0).toLocaleString('en-IN')}
+              </span>
             </div>
-            {/* Breakdown — show if any sub-category exists */}
-            {(data?.summary?.billsPaidTotal > 0 || data?.summary?.guiltyFreeTotal > 0) && (
-              <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
-                {formatINR(data.summary.variableTotal)} regular
-                {data.summary.billsPaidTotal > 0 && ` + ${formatINR(data.summary.billsPaidTotal)} bills paid`}
-                {data.summary.guiltyFreeTotal > 0 && ` + ${formatINR(data.summary.guiltyFreeTotal)} guilt-free`}
-              </p>
+
+            {/* Bills paid — separate pill */}
+            {(data?.summary?.billsPaidTotal ?? 0) > 0 && (
+              <div style={{
+                display:'flex', alignItems:'center', gap:'4px',
+                padding:'3px 10px', borderRadius:'100px',
+                background:'rgba(78,159,255,0.1)',
+                border:'0.5px solid rgba(78,159,255,0.25)',
+              }}>
+                <span style={{ fontFamily:'Inter', fontSize:'11px', color:'#5BA4F5' }}>Bills:</span>
+                <span style={{ fontFamily:'Outfit', fontWeight:600, fontSize:'12px', color:'#5BA4F5' }}>
+                  ₹{(data?.summary?.billsPaidTotal ?? 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+            )}
+
+            {/* Guilt-free — separate pill */}
+            {(data?.summary?.guiltyFreeTotal ?? 0) > 0 && (
+              <div style={{
+                display:'flex', alignItems:'center', gap:'4px',
+                padding:'3px 10px', borderRadius:'100px',
+                background:'rgba(0,201,167,0.1)',
+                border:'0.5px solid rgba(0,201,167,0.25)',
+              }}>
+                <span style={{ fontFamily:'Inter', fontSize:'11px', color:'#00C9A7' }}>Guilt-free:</span>
+                <span style={{ fontFamily:'Outfit', fontWeight:600, fontSize:'12px', color:'#00C9A7' }}>
+                  ₹{(data?.summary?.guiltyFreeTotal ?? 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+            )}
+
+            {/* Period context */}
+            {activeMonthFilter !== 'all' && (
+              <span style={{ fontFamily:'Inter', fontSize:'11px', color:'#4A4E65' }}>
+                {activeMonthFilter.replace('_', ' ')}
+              </span>
             )}
           </div>
         )}

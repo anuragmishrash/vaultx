@@ -584,53 +584,109 @@ export default function Dashboard() {
               gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)',
               gap: isMobile ? '10px' : '16px',
             }}>
-            {/* Total Spent */}
+            {/* Total Spent (KPI Card 1) */}
             <motion.div variants={listItem}>
-              <Card className="col-span-1 kpi-card-spent">
+              <Card className="col-span-1 kpi-card-spent" style={{ padding: '20px 22px' }}>
                 <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-xs text-vault-text-muted uppercase tracking-wide mb-1">{uiKpi?.spentLabel || 'Spent'}</p>
-                    <p className="kpi-number kpi-number-amber mb-2">
-                      <AnimatedCounter value={uiKpi?.spentValue} />
+                  <div style={{ width: '100%' }}>
+                    <p className="t-label" style={{ marginBottom: '6px', fontSize: '11px', color: '#9295A8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      {uiKpi?.spentLabel || 'Spent'}
                     </p>
+
+                    {/* PRIMARY NUMBER: Only regular (variable) transactions */}
+                    <p className="t-metric tabular-nums" style={{
+                      color: '#F5A623',
+                      textShadow: '0 0 24px rgba(245,166,35,0.35)',
+                      marginBottom: '4px',
+                      lineHeight: 1,
+                      fontSize: '28px',
+                      fontFamily: 'Outfit',
+                      fontWeight: 700
+                    }}>
+                      ₹{(data?.displayVariableSpend ?? 0).toLocaleString('en-IN')}
+                    </p>
+                    <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#9295A8', margin: '0 0 10px' }}>
+                      {tfmTab === 'all_time' ? 'total regular spends' : 'regular transactions'}
+                    </p>
+
+                    {/* All time average subtext */}
+                    {tfmTab === 'all_time' && (
+                      <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: '0 0 10px' }}>
+                        ≈₹{(data?.avgMonthlySpend ?? 0).toLocaleString('en-IN')}/month avg · {data?.monthsOfData} months
+                      </p>
+                    )}
+
+                    {/* SECONDARY: Bills paid — shown smaller, below */}
+                    {(data?.billsPaid ?? 0) > 0 && (
+                      <div style={{
+                        padding: '7px 10px', borderRadius: '8px',
+                        background: 'rgba(78,159,255,0.08)',
+                        border: '0.5px solid rgba(78,159,255,0.2)',
+                        marginBottom: '10px',
+                      }}>
+                        <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#5BA4F5', margin: 0 }}>
+                          + ₹{(data?.billsPaid ?? 0).toLocaleString('en-IN')} bills paid
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Progress bar — only against regular spend vs pool */}
+                    {budget > 0 && tfmTab !== 'all_time' && (
+                      <>
+                        <div style={{ height: '4px', background: 'rgba(255,255,255,0.07)', borderRadius: '4px', overflow: 'hidden', marginBottom: '5px' }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.min(((data?.displayVariableSpend ?? 0) / budget) * 100, 100)}%`,
+                            background: (data?.displayVariableSpend ?? 0) > budget
+                              ? 'linear-gradient(90deg,#FF5C5C,#FF8A8A)'
+                              : (data?.displayVariableSpend ?? 0) > budget * 0.8
+                              ? 'linear-gradient(90deg,#F5A623,#FFD166)'
+                              : 'linear-gradient(90deg,#00C9A7,#3DFFD6)',
+                            borderRadius: '4px', transition: 'width 0.8s ease',
+                          }} />
+                        </div>
+                        <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
+                          Pool: ₹{(data?.poolAmount ?? budget).toLocaleString('en-IN')}
+                        </p>
+                      </>
+                    )}
+                    
+                    {!budget && (
+                      <p className="text-xs mt-2" style={{ color: '#F5A623' }}>
+                        <Link to="/settings" style={{ color: '#F5A623', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>Set a budget in Settings →</Link>
+                      </p>
+                    )}
                   </div>
-                  {budget && <ProgressRing pct={uiKpi?.progressPct || 0} />}
                 </div>
-                {budget ? (
-                  <div className="mt-2">
-                    <div className="flex justify-between text-xs text-vault-text-muted mb-1">
-                      <span>{uiKpi?.poolLine}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs mt-2" style={{ color: '#F5A623' }}>
-                    <Link to="/settings" style={{ color: '#F5A623', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>Set a budget in Settings →</Link>
-                  </p>
-                )}
               </Card>
             </motion.div>
 
-            {/* Pool Remaining */}
+            {/* Pool Remaining (KPI Card 2) */}
             <motion.div variants={listItem}>
-              <Card className="kpi-card-budget">
-                <p className="text-xs text-vault-text-muted uppercase tracking-wide mb-1">
-                  {uiKpi?.remainingLabel || uiKpi?.poolLabel || 'Pool remaining'}
+              <Card className="kpi-card-budget" style={{ padding: '20px 22px' }}>
+                <p className="t-label" style={{ marginBottom: '8px', fontSize: '11px', color: '#9295A8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  {data?.remainingLabel || uiKpi?.remainingLabel || 'Pool remaining'}
                 </p>
-                {budget && uiKpi?.poolLeft !== null ? (
+                {budget && data?.displayRemaining !== undefined && data?.displayRemaining !== null ? (
                   <>
-                    <p className="kpi-number mb-2" style={{
-                      color: (uiKpi.poolLeft ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C',
-                      textShadow: (uiKpi.poolLeft ?? 0) >= 0 ? '0 0 24px rgba(0,201,167,0.3)' : '0 0 24px rgba(255,92,92,0.35)',
+                    <p className="t-metric tabular-nums" style={{
+                      color: data.displayRemaining >= 0 ? '#00C9A7' : '#FF5C5C',
+                      textShadow: data.displayRemaining >= 0 ? '0 0 24px rgba(0,201,167,0.3)' : '0 0 24px rgba(255,92,92,0.35)',
+                      marginBottom: '6px',
+                      lineHeight: 1,
+                      fontSize: '28px',
+                      fontFamily: 'Outfit',
+                      fontWeight: 700
                     }}>
-                      <AnimatedCounter value={Math.abs(uiKpi.poolLeft ?? 0)} />
+                      ₹{Math.abs(data.displayRemaining).toLocaleString('en-IN')}
                     </p>
-                    <p className="text-xs mt-2" style={{ color: (uiKpi.poolLeft ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C' }}>
-                      {(uiKpi.poolLeft ?? 0) < 0
-                        ? <span className="flex items-center gap-1"><TrendingUp size={12} /> Over budget</span>
-                        : (uiKpi.poolLeft ?? 0) < (budget * 0.2)
-                        ? <span className="flex items-center gap-1">⚠ Running low</span>
-                        : <span className="flex items-center gap-1"><TrendingDown size={12} /> Under budget</span>
-                      }
+                    {tfmTab !== 'all_time' && (
+                      <p style={{ fontFamily: 'Inter', fontSize: '12px', color: data.displayRemaining >= 0 ? '#00C9A7' : '#FF5C5C', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {data.displayRemaining >= 0 ? <><TrendingDown size={12} /> Under budget</> : <><TrendingUp size={12} /> Over budget</>}
+                      </p>
+                    )}
+                    <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
+                      Discretionary only · Pool ₹{(data?.poolAmount ?? budget).toLocaleString('en-IN')}
                     </p>
                   </>
                 ) : (
@@ -710,52 +766,114 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {/* Main Safe to Spend number */}
+                  {/* Main Safe to Spend number (FIX 2) */}
                   <div className="flex justify-between items-end gap-2">
-                    <div>
-                      {/* Big Safe to Spend number */}
+                    <div style={{ width: '100%' }}>
+                      {/* THE MAIN NUMBER — always current, never period-based */}
                       <p style={{
-                        fontFamily: 'Outfit', fontSize: '32px', fontWeight: 700, margin: 0,
+                        fontFamily: 'Outfit', fontWeight: 700,
+                        fontSize: 'clamp(28px,3.5vw,36px)', letterSpacing: '-0.03em',
                         color: (data?.safeToSpend ?? 0) >= 0 ? '#00C9A7' : '#FF5C5C',
-                        display: 'flex', alignItems: 'baseline', gap: '4px',
+                        textShadow: (data?.safeToSpend ?? 0) >= 0
+                          ? '0 0 24px rgba(0,201,167,0.3)'
+                          : '0 0 24px rgba(255,92,92,0.35)',
+                        margin: '0 0 14px',
                       }} className="tabular-nums">
-                        {(data?.safeToSpend ?? 0) < 0 && <span style={{ fontSize: '20px' }}>−</span>}
-                        <AnimatedCounter value={Math.abs(data?.safeToSpend ?? 0)} />
+                        {(data?.safeToSpend ?? 0) < 0 ? '−' : ''}
+                        ₹{Math.abs(data?.safeToSpend ?? 0).toLocaleString('en-IN')}
                       </p>
 
-                      {/* Breakdown: Balance − Spent = Safe to Spend */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '10px' }}>
-                        {/* Row 1: Account balance */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>Account balance</span>
-                          <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '12px', color: '#EAEDF5' }}>
-                            {formatINR(data?.totalBalance ?? 0)}
+                      {/* WATERFALL BREAKDOWN — clean tabular layout */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+
+                        {/* Row 1: Account Balance */}
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '7px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)',
+                        }}>
+                          <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                            Account balance
+                          </span>
+                          <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '13px', color: '#EAEDF5' }}>
+                            ₹{(data?.totalBalance ?? 0).toLocaleString('en-IN')}
                           </span>
                         </div>
 
-                        {/* Row 2: Spent this month (if > 0) */}
-                        {(uiKpi?.spentValue ?? 0) > 0 && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#FF5C5C' }}>
-                              − Spent {data?.periodLabel === 'this month' ? 'this month' : 'this period'}
+                        {/* Row 2: Unpaid bills (the REAL deduction — money not yet gone but owed) */}
+                        {(data?.unpaidCommitments ?? 0) > 0 && (
+                          <div style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '7px 0', borderBottom: '0.5px solid rgba(255,255,255,0.06)',
+                          }}>
+                            <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#FF5C5C', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <span style={{ fontSize: '10px' }}>⚠</span> Unpaid bills
                             </span>
-                            <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '12px', color: '#FF5C5C' }}>
-                              −{formatINR(uiKpi?.spentValue ?? 0)}
+                            <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '13px', color: '#FF5C5C' }}>
+                              −₹{(data?.unpaidCommitments ?? 0).toLocaleString('en-IN')}
                             </span>
                           </div>
                         )}
 
-                        {/* Divider */}
-                        <div style={{ height: '0.5px', background: 'rgba(255,255,255,0.08)', margin: '3px 0' }} />
+                        {/* Result row */}
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '8px 0',
+                          background: 'rgba(0,201,167,0.05)',
+                          margin: '0 -2px', paddingLeft: '2px', paddingRight: '2px',
+                        }}>
+                          <span style={{ fontFamily: 'Inter', fontSize: '12px', fontWeight: 600, color: '#00C9A7' }}>
+                            Safe to spend now
+                          </span>
+                          <span style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: '13px', color: '#00C9A7' }}>
+                            ₹{(data?.safeToSpend ?? 0).toLocaleString('en-IN')}
+                          </span>
+                        </div>
 
-                        {/* Period context: bills paid + variable this period */}
-                        <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
-                          {uiKpi?.commitmentsPaidAmount > 0 && `${formatINR(uiKpi.commitmentsPaidAmount)} bills paid`}
-                          {uiKpi?.commitmentsPaidAmount > 0 && uiKpi?.variableSpend > 0 && ' · '}
-                          {uiKpi?.variableSpend > 0 && `${formatINR(uiKpi.variableSpend)} variable`}
-                          {(uiKpi?.variableSpend ?? 0) === 0 && (uiKpi?.commitmentsPaidAmount ?? 0) === 0 && 'No spends yet'}
-                          {` · ${data?.periodLabel || 'this month'}`}
-                        </p>
+                        {/* INFORMATIONAL SECTION — shows period-based history, clearly labeled */}
+                        <div style={{
+                          marginTop: '10px', padding: '10px 12px',
+                          background: 'rgba(255,255,255,0.02)',
+                          borderRadius: '10px',
+                          border: '0.5px solid rgba(255,255,255,0.06)',
+                        }}>
+                          <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: '0 0 7px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            {data?.periodLabel || 'This month'} · Already spent
+                          </p>
+
+                          {/* Commitments paid this period */}
+                          {(data?.infoBillsPaid ?? 0) > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                                Bills paid
+                              </span>
+                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                                ₹{(data?.infoBillsPaid ?? 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Variable transactions this period */}
+                          {(data?.infoVariableSpend ?? 0) > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                                Regular spends
+                              </span>
+                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                                ₹{(data?.infoVariableSpend ?? 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Total period spending */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '5px', borderTop: '0.5px solid rgba(255,255,255,0.06)', marginTop: '2px' }}>
+                            <span style={{ fontFamily: 'Inter', fontSize: '12px', fontWeight: 500, color: '#EAEDF5' }}>
+                              Total out
+                            </span>
+                            <span style={{ fontFamily: 'Outfit', fontSize: '12px', fontWeight: 700, color: '#EAEDF5' }}>
+                              ₹{((data?.infoBillsPaid ?? 0) + (data?.infoVariableSpend ?? 0)).toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 

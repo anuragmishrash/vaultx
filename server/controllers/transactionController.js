@@ -93,19 +93,25 @@ const getTransactions = async (req, res, next) => {
     const total      = await Transaction.countDocuments(query);
     const transactions = await Transaction.find(query).sort(sortObj).skip(skip).limit(parseInt(limit));
 
-    // ── Spending summary using the same logic as dashboard ──────────────────
-    //    Only compute when a date range is active (so the total is meaningful)
-    let summary = null;
-      if (periodStart && periodEnd) {
-        const spending = await getSpendingForPeriod(req.user._id, periodStart, periodEnd);
-        summary = {
-          totalMoneyOut:   spending.totalMoneyOut,
-          variableTotal:   spending.variableTotal,
-          billsPaidTotal:  spending.billsPaidTotal,
-          guiltyFreeTotal: spending.guiltyFreeTotal,
-          count:           total,
-        };
-      }
+    // ── Spending summary per user prompt ────────────────────────────────────
+    const regularTransactions = transactions.filter(t =>
+      !t.isCommitmentPayment && !t.isGuiltyFreeSpend && !t.isATMWithdrawal
+    );
+    const billTransactions     = transactions.filter(t => t.isCommitmentPayment);
+    const guiltFreeTransactions = transactions.filter(t => t.isGuiltyFreeSpend);
+
+    const summary = {
+      totalCount:      transactions.length,
+      regularCount:    regularTransactions.length,
+      billsCount:      billTransactions.length,
+      guiltFreeCount:  guiltFreeTransactions.length,
+
+      variableTotal:   regularTransactions.reduce((s, t) => s + t.amount, 0),
+      billsPaidTotal:  billTransactions.reduce((s, t) => s + t.amount, 0),
+      guiltyFreeTotal: guiltFreeTransactions.reduce((s, t) => s + t.amount, 0),
+
+      grandTotal:      transactions.reduce((s, t) => s + t.amount, 0),
+    };
 
     res.json({
       success: true,

@@ -38,97 +38,85 @@ function getRemainingLabel(period) {
 // ─── Main dashboard ───────────────────────────────────────────────────────────
 const getDashboard = async (req, res, next) => {
   try {
-    const now    = new Date();
-    const user   = req.user;
+    const userId = req.user._id;
     const period = req.query.period || 'this_month';
-
-    const currentMonth = now.getMonth() + 1;
-    const currentYear  = now.getFullYear();
-    const dayOfMonth   = now.getDate();
-    const daysInMonth  = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const now    = new Date();
 
     const { Account, Commitment, CommitmentLog } = getAccountModels();
 
-    // ── 1. Account balances (always current — never period-based) ─────────
-    const accounts     = await Account.find({ userId: user._id, isActive: true });
-    const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
-    const hasAccounts  = accounts.length > 0;
+    // Always-current data
+    const accounts      = await Account.find({ userId, isActive: true });
+    const totalBalance  = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+    const user          = await User.findById(userId).select('monthlySalary monthlyBudget spendingPool createdAt zeroDayStreak');
+    
+    const effectiveBudget = getEffectiveBudget(user);
+    const poolAmount    = effectiveBudget.amount || 0;
+    
+    const currentMonth  = now.getMonth() + 1;
+    const currentYear   = now.getFullYear();
+    const unpaid        = await getUnpaidCommitmentsForMonth(userId, currentMonth, currentYear);
+    const safeToSpend   = totalBalance - unpaid.total;  // NEVER subtract paid bills again
 
-    // ── 2. Period-specific spending breakdown ─────────────────────────────
-    const { start, end, months: periodMonths, label: periodLabel } = getPeriodBounds(period, now);
+    // Period data
+    const { start: startDate, end: endDate, label } = getPeriodBounds(period, now);
+    const spending = await getSpendingForPeriod(userId, startDate, endDate);
 
-    // How many months of data for all_time scaling?
-    const fullUser     = await User.findById(user._id).select('createdAt monthlyBudget monthlySalary spendingPool moneyMode');
-    const createdAt    = fullUser?.createdAt || new Date(now.getFullYear() - 1, now.getMonth(), 1);
-    const monthsOfData = Math.max(1, Math.round(
-      Math.abs(now - createdAt) / (1000 * 60 * 60 * 24 * 30)
-    ));
-    const activePeriodMonths = period === 'all_time'
-      ? monthsOfData
-      : (periodMonths || 1);
+    // Months since account created
+    const monthsOfData = Math.max(1,
+      Math.round((now - new Date(user.createdAt)) / (1000 * 60 * 60 * 24 * 30))
+    );
 
-    const spending = await getSpendingForPeriod(user._id, start, end);
+    // Pool calculation — variable spend only, not bills
+    let displayVariableSpend, displayRemaining, progressPct, isOverBudget, remainingLabel;
 
-    // ── 3. Safe to Spend — (Balance - Spent this period) ───────────────
-    const safeToSpend = totalBalance - spending.totalMoneyOut;
+    if (period === 'all_time') {
+      displayVariableSpend = spending.variableTotal;
+      displayRemaining     = Math.max(0, poolAmount - Math.round(spending.variableTotal / monthsOfData));
+      progressPct          = null;
+      isOverBudget         = false;
+      remainingLabel       = 'AVG MONTHLY REMAINING';
+    } else if (period === '3_months') {
+      displayVariableSpend = Math.round(spending.variableTotal / 3);  // monthly avg
+      displayRemaining     = poolAmount - displayVariableSpend;
+      progressPct          = Math.min(Math.round((displayVariableSpend / poolAmount) * 100), 100);
+      isOverBudget         = displayRemaining < 0;
+      remainingLabel       = 'AVG MONTHLY REMAINING';
+    } else {
+      displayVariableSpend = spending.variableTotal;
+      displayRemaining     = poolAmount - spending.variableTotal;
+      progressPct          = Math.min(Math.round((spending.variableTotal / poolAmount) * 100), 100);
+      isOverBudget         = displayRemaining < 0;
+      remainingLabel       = period === 'last_month' ? 'LAST MONTH REMAINING' : 'POOL REMAINING';
+    }
 
-    // Display value (average for 3-month periods)
-    const displaySpent = period === '3_months'
-      ? Math.round(spending.totalMoneyOut / 3)
-      : spending.totalMoneyOut;
-
-    // ── 4. Budget / pool — scaled for period ─────────────────────────────
-    const effectiveBudget = getEffectiveBudget(fullUser || user);
-    const monthlyPool     = effectiveBudget.amount || 0;
-    const periodPool      = getPeriodPool(monthlyPool, period, monthsOfData);
-
-    // Pool remaining — use totalMoneyOut (not displaySpent) for raw calc
-    const poolRemaining = monthlyPool > 0 ? periodPool - spending.totalMoneyOut : null;
-
-    // Display remaining (show monthly avg for multi-month periods)
-    const displayRemaining = poolRemaining === null ? null
-      : period === '3_months'  ? Math.round(poolRemaining / 3)
-      : period === 'all_time'  ? Math.round(poolRemaining / monthsOfData)
-      : poolRemaining;
-
-    // Progress % based on period-scaled pool (prevents 100% for all_time)
-    const progressPct = periodPool > 0
-      ? Math.min(Math.round((spending.totalMoneyOut / periodPool) * 100), 100)
-      : 0;
-    const isOverBudget = poolRemaining !== null && poolRemaining < 0;
-
-    // ── 5. Regret score ────────────────────────────────────────────────────
+    // Regret score
     const varTxns     = await Transaction.find({
       userId:              user._id,
-      date:                { $gte: start, $lte: end },
+      date:                { $gte: startDate, $lte: endDate },
       isATMWithdrawal:     { $ne: true },
       isCommitmentPayment: { $ne: true },
     });
     const rated       = varTxns.filter(t => t.regretStatus !== 'pending');
     const regretCount = rated.filter(t => t.regretStatus === 'regret').length;
     const regretScore = rated.length > 0 ? Math.round((regretCount / rated.length) * 100) : 0;
+    
+    // Regret Breakdown
+    const regretBreakdown = { regret: { count: 0, total: 0 }, okay: { count: 0, total: 0 }, worth_it: { count: 0, total: 0 }, rated: rated.length, total: varTxns.length };
+    rated.forEach(t => { if (regretBreakdown[t.regretStatus]) { regretBreakdown[t.regretStatus].count++; regretBreakdown[t.regretStatus].total += t.amount; } });
 
-    const regretBreakdown = {
-      regret:   { count: 0, total: 0 },
-      okay:     { count: 0, total: 0 },
-      worth_it: { count: 0, total: 0 },
-      rated: rated.length,
-      total: varTxns.length,
-    };
-    rated.forEach(t => {
-      if (regretBreakdown[t.regretStatus]) {
-        regretBreakdown[t.regretStatus].count++;
-        regretBreakdown[t.regretStatus].total += t.amount;
-      }
-    });
-
-    // ── 6. Category breakdown (for pie chart) ─────────────────────────────
+    // Category Map
     const categoryMap = {};
     varTxns.forEach(t => { categoryMap[t.category] = (categoryMap[t.category] || 0) + t.amount; });
     const categoryBreakdown = Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
 
-    // ── 7. Daily spending chart (for this_month / last_month only) ────────
-    //    For 3_months and all_time, the frontend handles grouping from chartDataRaw
+    // Pending Regret & Recent
+    const pendingRegret = await Transaction.find({ userId, regretStatus: 'pending', date: { $lte: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, isCommitmentPayment: { $ne: true } }).sort({ date: -1 }).limit(10);
+    const recentTxns = await Transaction.find({ userId, isCommitmentPayment: { $ne: true } }).sort({ createdAt: -1 }).limit(5);
+
+    const calculateCurrentStreak = require('../utils/streakCalculator');
+    const streak      = await calculateCurrentStreak(userId);
+
+    // Chart logic
     const { start: mStart, end: mEnd } = period === 'last_month'
       ? (() => {
           const lm = currentMonth === 1 ? 12 : currentMonth - 1;
@@ -144,10 +132,12 @@ const getDashboard = async (req, res, next) => {
       dailyMap[day] = (dailyMap[day] || 0) + t.amount;
     });
 
+    const daysInMonth  = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     const chartDaysInMonth = period === 'last_month'
       ? new Date(mStart.getFullYear(), mStart.getMonth() + 1, 0).getDate()
       : daysInMonth;
 
+    const dayOfMonth = now.getDate();
     const dailySpend = [];
     for (let d = 1; d <= chartDaysInMonth; d++) {
       const isFuture = period === 'this_month' && d > dayOfMonth;
@@ -160,90 +150,38 @@ const getDashboard = async (req, res, next) => {
       });
     }
 
-    // ── 8. Forecast (this_month only) ─────────────────────────────────────
+    // Forecast
     let forecastTotal = 0, forecastConfidence = 'high', forecastMessage = null;
     if (period === 'this_month') {
-      if (dayOfMonth === 1) {
-        forecastTotal = null; forecastConfidence = 'none'; forecastMessage = 'new_month';
-      } else if (dayOfMonth < 5) {
-        const lm = currentMonth === 1 ? 12 : currentMonth - 1;
-        const ly = currentMonth === 1 ? currentYear - 1 : currentYear;
-        const lmBounds = { start: new Date(ly, lm - 1, 1), end: new Date(ly, lm, 0, 23, 59, 59) };
-        const lmSpend  = await getSpendingForPeriod(user._id, lmBounds.start, lmBounds.end);
-        const lmDays   = new Date(ly, lm, 0).getDate();
-        const lmAvg    = lmSpend.variableTotal / lmDays;
-        const blended  = ((spending.variableTotal / dayOfMonth) * (dayOfMonth / 5)) + (lmAvg * (1 - dayOfMonth / 5));
-        forecastTotal  = Math.round(spending.variableTotal + blended * (daysInMonth - dayOfMonth));
-        forecastConfidence = 'low'; forecastMessage = 'early_estimate';
-      } else {
-        forecastTotal  = Math.round((spending.variableTotal / dayOfMonth) * daysInMonth);
-        forecastConfidence = dayOfMonth >= 15 ? 'high' : 'medium';
+      if (dayOfMonth >= 5 && daysInMonth > 0) {
+        const spendToDate = spending.variableTotal; // Predict based on variable spend
+        const dailyAvg    = spendToDate / dayOfMonth;
+        forecastTotal     = Math.round(spendToDate + (dailyAvg * (daysInMonth - dayOfMonth)));
+        forecastConfidence = dayOfMonth >= 20 ? 'high' : dayOfMonth >= 10 ? 'medium' : 'low';
+        forecastMessage   = `Based on ₹${Math.round(dailyAvg)}/day avg`;
       }
     }
 
-    // ── 9. Pending regret + streak ────────────────────────────────────────
-    const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
-    const pendingRegret = await Transaction.find({
-      userId: user._id, regretStatus: 'pending',
-      date: { $lte: yesterday }, isGuiltyFreeSpend: { $ne: true },
-    }).limit(5);
-
-    const streak = await calculateCurrentStreak(user._id);
-    if (streak !== user.zeroDayStreak) {
-      await User.findByIdAndUpdate(user._id, { zeroDayStreak: streak });
-    }
-
-    // ── 10. Recent transactions ────────────────────────────────────────────
-    const { start: thisMonthStart } = localMonthBounds(currentMonth, currentYear);
-    const recentTxns = await Transaction.find({
-      userId: user._id,
-      date:   { $gte: thisMonthStart, $lte: new Date() },
-    }).sort({ date: -1 }).limit(10);
-
-    // ── Response ──────────────────────────────────────────────────────────
     res.json({
       success: true,
+      data: {
+        period, periodLabel: label,
 
-      // Period meta
-      period,
-      periodLabel,
-      spentLabel:     getSpentLabel(period),
-      remainingLabel: getRemainingLabel(period),
-
-      // KPI data
-      kpi: {
-        // Spent
-        totalSpent:           spending.totalMoneyOut,
-        variableSpend:        spending.variableTotal,
-        commitmentsPaidAmount: spending.billsPaidTotal,
-        displaySpent,         // monthly avg for 3_months
-
-        // Pool / budget
-        budget:           monthlyPool,
-        poolAmount:       monthlyPool,
-        periodPool,
-        poolRemaining:    displayRemaining,
-        isOverBudget,
+        // KPI Card 1
+        spentLabel: getSpentLabel(period),
+        displayVariableSpend,           // what shows BIG (regular transactions only)
+        billsPaid: spending.billsPaidTotal,  // shown smaller below
         progressPct,
-        budgetSource:     effectiveBudget.source,
-        budgetLabel:      effectiveBudget.label,
-        budgetPercent:    progressPct,
-        budgetRemaining:  displayRemaining,
 
-        // Other KPIs
+        // KPI Card 2
+        poolAmount,
+        displayRemaining,
+        isOverBudget,
+        remainingLabel,
+
+        // KPI 3 & 4
         regretScore,
         zeroDayStreak: streak,
-      },
-
-      // Charts
-      categoryBreakdown,
-      dailySpend,
-
-      // Forecast
-      forecast: {
-        forecastTotal,
-        budget:       monthlyPool,
-        budgetLabel:  effectiveBudget.label,
         overshoot:    (forecastTotal && monthlyPool) ? forecastTotal - monthlyPool : 0,
         confidence:   forecastConfidence,
         message:      forecastMessage,

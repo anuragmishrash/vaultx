@@ -84,18 +84,23 @@ export default function AddTransactionModal({ isOpen, onClose, editTx }) {
   }, [defaultAccount]); // eslint-disable-line
 
   useEffect(() => {
-    if (editTx && isOpen) {
-      setValue('title', editTx.title || '');
-      setValue('amount', editTx.amount || '');
-      setValue('category', editTx.category || 'Others');
-      setValue('paymentMode', editTx.paymentMode || 'UPI');
-      setValue('date', editTx.date ? format(new Date(editTx.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
-      setValue('note', editTx.note || '');
-      setValue('isRecurring', !!editTx.isRecurring);
-      setValue('recurringLabel', editTx.recurringLabel || '');
-      setValue('isGuiltyFreeSpend', !!editTx.isGuiltyFreeSpend);
-      setValue('tags', editTx.tags?.join(', ') || '');
-      setCategoryManuallySet(true);
+    if (isOpen) {
+      if (editTx) {
+        setValue('title', editTx.title || '');
+        setValue('amount', editTx.amount || '');
+        setValue('category', editTx.category || 'Others');
+        setValue('paymentMode', editTx.paymentMode || 'UPI');
+        setValue('date', editTx.date ? format(new Date(editTx.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
+        setValue('note', editTx.note || '');
+        setValue('isRecurring', !!editTx.isRecurring);
+        setValue('recurringLabel', editTx.recurringLabel || '');
+        setValue('isGuiltyFreeSpend', !!editTx.isGuiltyFreeSpend);
+        setValue('tags', editTx.tags?.join(', ') || '');
+        setCategoryManuallySet(true);
+      } else {
+        // Fix 5: Ensure Guilt-Free flag is always default false on new opens
+        setValue('isGuiltyFreeSpend', false);
+      }
     }
   }, [editTx, isOpen, setValue]);
 
