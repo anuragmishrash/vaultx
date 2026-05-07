@@ -395,12 +395,12 @@ export default function Transactions() {
                 <span style={{ color: '#F5A623' }}>all time</span>
               )}
             </div>
-            {/* Bills paid breakdown — only show when there are commitment payments */}
-            {(data?.summary?.billsPaidTotal ?? 0) > 0 && (
+            {/* Breakdown — show if any sub-category exists */}
+            {(data?.summary?.billsPaidTotal > 0 || data?.summary?.guiltyFreeTotal > 0) && (
               <p style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65', margin: 0 }}>
                 {formatINR(data.summary.variableTotal)} regular
-                {' + '}
-                {formatINR(data.summary.billsPaidTotal)} bills paid
+                {data.summary.billsPaidTotal > 0 && ` + ${formatINR(data.summary.billsPaidTotal)} bills paid`}
+                {data.summary.guiltyFreeTotal > 0 && ` + ${formatINR(data.summary.guiltyFreeTotal)} guilt-free`}
               </p>
             )}
           </div>

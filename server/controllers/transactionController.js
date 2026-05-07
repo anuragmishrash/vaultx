@@ -96,15 +96,16 @@ const getTransactions = async (req, res, next) => {
     // ── Spending summary using the same logic as dashboard ──────────────────
     //    Only compute when a date range is active (so the total is meaningful)
     let summary = null;
-    if (periodStart && periodEnd) {
-      const spending = await getSpendingForPeriod(req.user._id, periodStart, periodEnd);
-      summary = {
-        totalMoneyOut:  spending.totalMoneyOut,
-        variableTotal:  spending.variableTotal,
-        billsPaidTotal: spending.billsPaidTotal,
-        count:          total,
-      };
-    }
+      if (periodStart && periodEnd) {
+        const spending = await getSpendingForPeriod(req.user._id, periodStart, periodEnd);
+        summary = {
+          totalMoneyOut:   spending.totalMoneyOut,
+          variableTotal:   spending.variableTotal,
+          billsPaidTotal:  spending.billsPaidTotal,
+          guiltyFreeTotal: spending.guiltyFreeTotal,
+          count:           total,
+        };
+      }
 
     res.json({
       success: true,

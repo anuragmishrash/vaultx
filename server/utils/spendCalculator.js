@@ -144,9 +144,9 @@ async function getSpendingForPeriod(userId, startDate, endDate) {
   ]);
   const guiltyFreeTotal = gfResult[0]?.total || 0;
 
-  // 4. Total money out = variable + bills paid
-  //    (guilt-free shown separately; ATM is a transfer, not a spend)
-  const totalMoneyOut = variableTotal + billsPaidTotal;
+  // 4. Total money out = variable + bills paid + guilt-free
+  //    (ATM is a transfer, not a spend)
+  const totalMoneyOut = variableTotal + billsPaidTotal + guiltyFreeTotal;
 
   return {
     variableTotal,
