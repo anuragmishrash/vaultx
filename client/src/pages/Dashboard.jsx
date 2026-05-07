@@ -723,7 +723,7 @@ export default function Dashboard() {
                         <AnimatedCounter value={Math.abs(data?.safeToSpend ?? 0)} />
                       </p>
 
-                      {/* Breakdown: Balance − Unpaid = Safe to Spend */}
+                      {/* Breakdown: Balance − Spent = Safe to Spend */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '10px' }}>
                         {/* Row 1: Account balance */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -733,14 +733,14 @@ export default function Dashboard() {
                           </span>
                         </div>
 
-                        {/* Row 2: Unpaid bills (only if any exist) */}
-                        {(data?.unpaidCommitments ?? 0) > 0 && (
+                        {/* Row 2: Spent this month (if > 0) */}
+                        {(uiKpi?.spentValue ?? 0) > 0 && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#FF5C5C' }}>
-                              − Unpaid bills ({data?.unpaidItems?.length ?? ''})
+                              − Spent {data?.periodLabel === 'this month' ? 'this month' : 'this period'}
                             </span>
                             <span style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: '12px', color: '#FF5C5C' }}>
-                              −{formatINR(data?.unpaidCommitments ?? 0)}
+                              −{formatINR(uiKpi?.spentValue ?? 0)}
                             </span>
                           </div>
                         )}
@@ -754,7 +754,6 @@ export default function Dashboard() {
                           {uiKpi?.commitmentsPaidAmount > 0 && uiKpi?.variableSpend > 0 && ' · '}
                           {uiKpi?.variableSpend > 0 && `${formatINR(uiKpi.variableSpend)} variable`}
                           {(uiKpi?.variableSpend ?? 0) === 0 && (uiKpi?.commitmentsPaidAmount ?? 0) === 0 && 'No spends yet'}
-                          {` · ${data?.periodLabel || 'this month'}`}
                         </p>
                       </div>
                     </div>

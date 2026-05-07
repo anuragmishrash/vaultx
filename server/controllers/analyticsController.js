@@ -54,13 +54,7 @@ const getDashboard = async (req, res, next) => {
     const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
     const hasAccounts  = accounts.length > 0;
 
-    // ── 2. Unpaid commitments — always current month ───────────────────────
-    //    Safe to Spend = Balance − unpaid bills only.
-    //    PAID bills are already gone from the balance. Don't subtract twice.
-    const unpaid     = await getUnpaidCommitmentsForMonth(user._id, currentMonth, currentYear);
-    const safeToSpend = totalBalance - unpaid.total;
-
-    // ── 3. Period-specific spending breakdown ─────────────────────────────
+    // ── 2. Period-specific spending breakdown ─────────────────────────────
     const { start, end, months: periodMonths, label: periodLabel } = getPeriodBounds(period, now);
 
     // How many months of data for all_time scaling?
@@ -75,13 +69,17 @@ const getDashboard = async (req, res, next) => {
 
     const spending = await getSpendingForPeriod(user._id, start, end);
 
+    // ── 3. Safe to Spend — (Balance - Spent this period) ───────────────
+    // The user wants Safe to Spend to equal their total money MINUS what they paid.
+    const safeToSpend = totalBalance - spending.totalMoneyOut;
+
     // Display value (average for 3-month periods)
     const displaySpent = period === '3_months'
       ? Math.round(spending.totalMoneyOut / 3)
       : spending.totalMoneyOut;
 
     // ── 4. Budget / pool — scaled for period ─────────────────────────────
-    const effectiveBudget = getEffectiveBudget(fullUser || user);
+    const effectiveBudget = getEffectiveBudget(fullUser || user, totalBalance);
     const monthlyPool     = effectiveBudget.amount || 0;
     const periodPool      = getPeriodPool(monthlyPool, period, monthsOfData);
 

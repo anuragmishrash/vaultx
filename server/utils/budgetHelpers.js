@@ -4,7 +4,7 @@
  * Never returns 0 — always returns a meaningful number or null.
  */
 
-function getEffectiveBudget(user) {
+function getEffectiveBudget(user, totalBalance = 0) {
   // Priority 1: explicit monthly budget
   if (user.monthlyBudget && user.monthlyBudget > 0) {
     return {
@@ -14,12 +14,12 @@ function getEffectiveBudget(user) {
     };
   }
 
-  // Priority 2: spending pool (Mode 2)
-  if (user.moneyMode === 'pool' && user.spendingPool && user.spendingPool > 0) {
+  // Priority 2: Account balance (user's starting pool)
+  if (totalBalance > 0) {
     return {
-      amount: user.spendingPool,
-      source: 'pool',
-      label: `Spending pool: ₹${user.spendingPool.toLocaleString('en-IN')}`,
+      amount: totalBalance,
+      source: 'balance',
+      label: `Pool: ₹${totalBalance.toLocaleString('en-IN')}`,
     };
   }
 
