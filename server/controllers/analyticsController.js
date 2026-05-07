@@ -54,13 +54,7 @@ const getDashboard = async (req, res, next) => {
     const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
     const hasAccounts  = accounts.length > 0;
 
-    // ── 2. Unpaid commitments — always current month ───────────────────────
-    //    Safe to Spend = Balance − unpaid bills only.
-    //    PAID bills are already gone from the balance. Don't subtract twice.
-    const unpaid     = await getUnpaidCommitmentsForMonth(user._id, currentMonth, currentYear);
-    const safeToSpend = totalBalance - unpaid.total;
-
-    // ── 3. Period-specific spending breakdown ─────────────────────────────
+    // ── 2. Period-specific spending breakdown ─────────────────────────────
     const { start, end, months: periodMonths, label: periodLabel } = getPeriodBounds(period, now);
 
     // How many months of data for all_time scaling?
@@ -74,6 +68,9 @@ const getDashboard = async (req, res, next) => {
       : (periodMonths || 1);
 
     const spending = await getSpendingForPeriod(user._id, start, end);
+
+    // ── 3. Safe to Spend — (Balance - Spent this period) ───────────────
+    const safeToSpend = totalBalance - spending.totalMoneyOut;
 
     // Display value (average for 3-month periods)
     const displaySpent = period === '3_months'
@@ -263,8 +260,8 @@ const getDashboard = async (req, res, next) => {
       // ── SAFE TO SPEND ───────────────────────────────────────────────────
       totalBalance,
       safeToSpend,
-      unpaidCommitments: unpaid.total,
-      unpaidItems: unpaid.items.map(c => ({ _id: c._id, title: c.title, amount: c.amount, dueDay: c.dueDay })),
+      unpaidCommitments: 0,
+      unpaidItems: [],
       hasAccounts,
       accounts: accounts.map(a => ({
         _id: a._id, name: a.name, type: a.type,
@@ -375,17 +372,16 @@ const getTfm = async (req, res, next) => {
 
     const currentMonth = now.getMonth() + 1;
     const currentYear  = now.getFullYear();
-    const unpaid       = await getUnpaidCommitmentsForMonth(req.user._id, currentMonth, currentYear);
-    const safeToSpend  = totalBalance - unpaid.total;
 
     const spending = await getSpendingForPeriod(req.user._id, start, end);
+    const safeToSpend  = totalBalance - spending.totalMoneyOut;
 
     res.json({
       success: true,
       totalBalance,
       hasAccounts,
       safeToSpend,
-      unpaidCommitments: unpaid.total,
+      unpaidCommitments: 0,
       commitmentsTotal:  spending.billsPaidTotal,
       variableSpend:     spending.variableTotal,
       trueFreeMoney:     safeToSpend - spending.variableTotal,

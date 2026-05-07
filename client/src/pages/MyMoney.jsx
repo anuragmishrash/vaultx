@@ -56,7 +56,7 @@ export default function MyMoney() {
   const accounts = summaryData?.accounts || [];
   const totalBalance = summaryData?.totalBalance || 0;
   const safeToSpend = summaryData?.safeToSpend ?? 0;
-  const unpaidCommitments = summaryData?.unpaidCommitments || 0;
+  const spentThisMonth = summaryData?.spentThisMonth || 0;
 
   const { register: aReg, handleSubmit: aSubmit, reset: aReset, watch: aWatch } = useForm({
     defaultValues: { type: 'bank_account', balance: '', name: '', color: '#F5A623' },
@@ -155,15 +155,15 @@ export default function MyMoney() {
                 <p className={`text-4xl font-display font-bold ${safeToSpend >= 0 ? 'text-vault-teal' : 'text-vault-red'}`}>
                   {disp(Math.abs(safeToSpend))}
                 </p>
-                {unpaidCommitments > 0 && (
-                  <p className="text-xs text-vault-text-muted mt-1">−{formatINR(unpaidCommitments)} pending commitments</p>
+                {spentThisMonth > 0 && (
+                  <p className="text-xs text-vault-text-muted mt-1">−{formatINR(spentThisMonth)} spent this month</p>
                 )}
               </div>
               <div>
                 <p className="text-xs text-vault-text-muted uppercase tracking-widest mb-2">Formula</p>
                 <p className="text-xs text-vault-text-secondary leading-relaxed">
                   Total Balance<br />
-                  − Unpaid Commitments<br />
+                  − Spent this month<br />
                   = Safe to Spend
                 </p>
               </div>
