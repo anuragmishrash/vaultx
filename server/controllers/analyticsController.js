@@ -182,29 +182,44 @@ const getDashboard = async (req, res, next) => {
         // KPI 3 & 4
         regretScore,
         zeroDayStreak: streak,
-        overshoot:    (forecastTotal && monthlyPool) ? forecastTotal - monthlyPool : 0,
-        confidence:   forecastConfidence,
-        message:      forecastMessage,
-        dayOfMonth,
-      },
 
-      // Regret
-      pendingRegret: pendingRegret.map(t => ({
-        id: t._id, title: t.title, amount: t.amount, date: t.date, category: t.category,
-      })),
-      recentTransactions: recentTxns,
-      regretBreakdown,
+        // Safe to Spend (always current — never period-based)
+        safeToSpend,
+        totalBalance,
+        unpaidCommitments: unpaid.total,
+        unpaidItems: unpaid.items,
 
-      // ── SAFE TO SPEND ───────────────────────────────────────────────────
-      totalBalance,
-      safeToSpend,
-      unpaidCommitments: 0,
-      unpaidItems: [],
-      hasAccounts,
-      accounts: accounts.map(a => ({
-        _id: a._id, name: a.name, type: a.type,
-        balance: a.balance, isDefault: a.isDefault, color: a.color,
-      })),
+        // Informational for Safe to Spend widget breakdown
+        infoBillsPaid:     spending.billsPaidTotal,
+        infoVariableSpend: spending.variableTotal,
+        monthsOfData,
+        avgMonthlySpend:   Math.round(spending.variableTotal / monthsOfData),
+
+        // Accounts
+        hasAccounts: accounts.length > 0,
+        accounts: accounts.map(a => ({
+          _id: a._id, name: a.name, balance: a.balance,
+          isDefault: a.isDefault, color: a.color, type: a.type
+        })),
+
+        // Legacy / Additional
+        categoryBreakdown,
+        dailySpend,
+        forecast: {
+          forecastTotal,
+          budget: poolAmount,
+          budgetLabel: effectiveBudget.label,
+          overshoot: (forecastTotal && poolAmount) ? forecastTotal - poolAmount : 0,
+          confidence: forecastConfidence,
+          message: forecastMessage,
+          dayOfMonth
+        },
+        pendingRegret: pendingRegret.map(t => ({
+          id: t._id, title: t.title, amount: t.amount, date: t.date, category: t.category,
+        })),
+        recentTransactions: recentTxns,
+        regretBreakdown
+      }
     });
   } catch (err) { next(err); }
 };
