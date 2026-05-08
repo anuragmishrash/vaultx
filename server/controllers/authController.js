@@ -32,9 +32,9 @@ const register = async (req, res, next) => {
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure:   process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge:   7 * 24 * 60 * 60 * 1000,
     });
 
     const userObj = user.toObject();
@@ -66,9 +66,9 @@ const login = async (req, res, next) => {
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge:   7 * 24 * 60 * 60 * 1000,
     });
 
     const userObj = user.toObject();
@@ -88,7 +88,11 @@ const login = async (req, res, next) => {
 const logout = async (req, res, next) => {
   try {
     await User.findByIdAndUpdate(req.user._id, { refreshToken: null });
-    res.clearCookie('refreshToken');
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    });
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (err) {
     next(err);
@@ -111,9 +115,9 @@ const refreshToken = async (req, res, next) => {
 
     res.cookie('refreshToken', newRefresh, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge:   7 * 24 * 60 * 60 * 1000,
     });
 
     res.json({ success: true, accessToken });
@@ -161,7 +165,11 @@ const deleteAccount = async (req, res, next) => {
       CommitmentLog.deleteMany({ userId: uid }),
       User.findByIdAndDelete(uid),
     ]);
-    res.clearCookie('refreshToken');
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure:   process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    });
     res.json({ success: true, message: 'Account deleted' });
   } catch (err) {
     next(err);
