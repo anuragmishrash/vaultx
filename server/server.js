@@ -13,6 +13,10 @@ const { startJobs } = require('./jobs/cronJobs');
 const app        = express();
 const httpServer = http.createServer(app);
 
+// Trust the first proxy (Render / Vercel / nginx) — required for express-rate-limit
+// to correctly read the real client IP from X-Forwarded-For without throwing ERR_ERL_UNEXPECTED_X_FORWARDED_FOR
+app.set('trust proxy', 1);
+
 // Connect DB
 connectDB();
 
