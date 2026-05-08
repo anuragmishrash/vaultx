@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Menu, Plus, Wallet,
+  Menu, Plus, Wallet, LogOut,
   LayoutDashboard, ArrowLeftRight, Banknote, Landmark,
   Heart, Brain, Ghost, TrendingUp, Dna, Zap, Shield, BarChart3, Settings,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuthStore, useUIStore } from '../../store/authStore';
+import { authAPI } from '../../api';
+import toast from 'react-hot-toast';
 
 const ALL_NAV_ITEMS = [
   { path: '/my-money',       icon: Wallet,          label: 'My Money' },
@@ -26,10 +28,19 @@ const ALL_NAV_ITEMS = [
 ];
 
 export default function Navbar() {
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const { setAddTransactionOpen } = useUIStore();
   const [showSideDrawer, setShowSideDrawer] = useState(false);
-  const location = useLocation();
+  const location  = useLocation();
+  const navigate  = useNavigate();
+
+  const handleLogout = async () => {
+    try { await authAPI.logout(); } catch {}
+    logout();
+    setShowSideDrawer(false);
+    navigate('/login');
+    toast.success('Logged out');
+  };
 
   return (
     <>
@@ -38,7 +49,7 @@ export default function Navbar() {
         className="md:hidden fixed top-0 left-0 right-0 flex items-center justify-between px-4"
         style={{
           height: 56,
-          zIndex: 600,   /* above drawer backdrop (500) so bar stays visible */
+          zIndex: 600,
           background: 'rgba(5,6,15,0.92)',
           backdropFilter: 'blur(24px) saturate(180%)',
           WebkitBackdropFilter: 'blur(24px) saturate(180%)',
@@ -85,18 +96,31 @@ export default function Navbar() {
           >
             <Plus size={22} />
           </button>
-          <div style={{
-            width: 30, height: 30, borderRadius: '50%',
-            background: 'linear-gradient(145deg,#9B8AFB,#7165E0)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12, fontWeight: 600, color: '#180850', fontFamily: 'Outfit',
-          }}>
-            {user?.name?.charAt(0)?.toUpperCase() || 'U'}
-          </div>
+
+          {/* Avatar — tapping opens side drawer */}
+          <button
+            onClick={() => setShowSideDrawer(true)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+              touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              minWidth: 44, minHeight: 44,
+            }}
+          >
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%',
+              background: 'linear-gradient(145deg,#9B8AFB,#7165E0)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 700, color: '#180850', fontFamily: 'Outfit',
+              boxShadow: '0 0 0 2px rgba(155,138,251,0.3)',
+            }}>
+              {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+            </div>
+          </button>
         </div>
       </header>
 
-      {/* ── Side drawer — rendered OUTSIDE header so z-index works correctly ── */}
+      {/* ── Side drawer ─────────────────────────────────────────── */}
       <AnimatePresence>
         {showSideDrawer && (
           <>
@@ -108,7 +132,7 @@ export default function Navbar() {
               style={{
                 position: 'fixed', inset: 0,
                 background: 'rgba(0,0,0,0.65)',
-                zIndex: 550,    /* below drawer panel but above everything else */
+                zIndex: 550,
               }}
             />
 
@@ -124,12 +148,13 @@ export default function Navbar() {
                 backdropFilter: 'blur(20px)',
                 borderRight: '0.5px solid rgba(255,255,255,0.08)',
                 zIndex: 560,
-                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column',
                 paddingBottom: 'env(safe-area-inset-bottom)',
               }}
             >
               {/* Logo row */}
-              <div style={{ padding: '20px 20px 16px', borderBottom: '0.5px solid rgba(255,255,255,0.07)' }}>
+              <div style={{ padding: '20px 20px 16px', borderBottom: '0.5px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 9, background: 'linear-gradient(145deg,#F7B733,#E08A00)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 14 }}>V</span>
@@ -138,8 +163,8 @@ export default function Navbar() {
                 </div>
               </div>
 
-              {/* Nav items */}
-              <nav style={{ padding: 12 }}>
+              {/* Nav items — scrollable */}
+              <nav style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
                 {ALL_NAV_ITEMS.map(item => {
                   const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
                   return (
@@ -163,15 +188,47 @@ export default function Navbar() {
                 })}
               </nav>
 
-              {/* User card */}
-              <div style={{ margin: 12, padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: '0.5px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(145deg,#9B8AFB,#7165E0)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Outfit', fontWeight: 700, fontSize: 14, color: '#180850', flexShrink: 0 }}>
-                  {user?.name?.charAt(0)?.toUpperCase()}
+              {/* User card + Logout — pinned to bottom */}
+              <div style={{ flexShrink: 0, borderTop: '0.5px solid rgba(255,255,255,0.07)', padding: 12 }}>
+                {/* User info */}
+                <div style={{
+                  padding: 12, marginBottom: 8,
+                  background: 'rgba(255,255,255,0.03)', borderRadius: 12,
+                  border: '0.5px solid rgba(255,255,255,0.07)',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: 'linear-gradient(145deg,#9B8AFB,#7165E0)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: 'Outfit', fontWeight: 700, fontSize: 14, color: '#180850', flexShrink: 0,
+                  }}>
+                    {user?.name?.charAt(0)?.toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <p style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: 500, color: '#EAEDF5', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.name}</p>
+                    <p style={{ fontFamily: 'Inter', fontSize: 11, color: '#4A4E65', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email}</p>
+                  </div>
                 </div>
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <p style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: 500, color: '#EAEDF5', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.name}</p>
-                  <p style={{ fontFamily: 'Inter', fontSize: 11, color: '#4A4E65', margin: 0 }}>Tap to manage account</p>
-                </div>
+
+                {/* Logout button */}
+                <button
+                  onClick={handleLogout}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '12px 14px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                    background: 'rgba(255,92,92,0.08)',
+                    color: '#FF5C5C',
+                    fontFamily: 'Inter', fontSize: 14, fontWeight: 500,
+                    touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent',
+                    transition: 'background 0.2s',
+                  }}
+                  onTouchStart={e => e.currentTarget.style.background = 'rgba(255,92,92,0.18)'}
+                  onTouchEnd={e => e.currentTarget.style.background = 'rgba(255,92,92,0.08)'}
+                >
+                  <LogOut size={17} style={{ flexShrink: 0 }} />
+                  Logout
+                </button>
               </div>
             </motion.div>
           </>
