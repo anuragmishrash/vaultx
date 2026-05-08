@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthStore, useUIStore } from './store/authStore';
 import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
+import { useSocket } from './hooks/useSocket';
 import Sidebar from './components/layout/Sidebar';
 import MobileNav from './components/layout/MobileNav';
 import Navbar from './components/layout/Navbar';
@@ -34,15 +35,23 @@ const CashTracker = lazy(() => import('./pages/CashTracker'));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60 * 1000,
-      gcTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: false,
-      retry: 1,
+      staleTime: 2 * 60 * 1000,         // 2 min — prevents burst on every mount
+      gcTime:    10 * 60 * 1000,         // 10 min cache
+      refetchOnWindowFocus: false,        // don't refetch on tab switch
+      retry: (failureCount, error) => {
+        const s = error?.response?.status;
+        if (s === 401 || s === 403 || s === 429) return false; // never retry auth/rate errors
+        return failureCount < 2;
+      },
+      retryDelay: (i) => Math.min(1000 * 2 ** i, 10000), // exponential backoff
     },
+    mutations: { retry: false },
   },
 });
 
 // ── Silently restore access token from httpOnly refresh cookie on page load ──
+let tokenRefreshStarted = false; // module-level guard — prevents double-invoke in StrictMode
+
 function TokenRefresher({ children }) {
   const { isAuthenticated, setAccessToken, logout } = useAuthStore();
   const [ready, setReady] = useState(false);
@@ -62,11 +71,15 @@ function TokenRefresher({ children }) {
       return;
     }
 
+    // Guard against StrictMode double-invoke
+    if (tokenRefreshStarted) { setReady(true); return; }
+    tokenRefreshStarted = true;
+
     // No token at all — call the refresh-token endpoint (uses httpOnly cookie)
     axios.post(
       `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/auth/refresh-token`,
       {},
-      { withCredentials: true }
+      { withCredentials: true, timeout: 15000 }
     )
       .then(({ data }) => {
         if (data.accessToken) {
@@ -78,7 +91,7 @@ function TokenRefresher({ children }) {
         }
       })
       .catch(() => {
-        // Refresh cookie expired — must re-login
+        // Refresh cookie expired — must re-login (but don't loop if already on /login)
         logout();
       })
       .finally(() => setReady(true));
@@ -106,6 +119,9 @@ function ProtectedLayout() {
   const { sidebarCollapsed, addTransactionOpen, setAddTransactionOpen } = useUIStore();
   const isMobile = useIsMobile();
   const isTablet = useIsTablet();
+
+  // Real-time updates — connect socket for entire authenticated session
+  useSocket();
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 

@@ -8,6 +8,7 @@ const { computeWaterfall } = require('../utils/waterfallEngine');
 const { getCommitmentStatusForMonth } = require('../utils/commitmentHelpers');
 const { predictFlexibleAmount, detectUnaddedCommitments, detectYoYDrift } = require('../utils/brainEngine');
 const { invalidateAndRefresh } = require('../utils/zeroDayEngine');
+const { emitToUser } = require('../socket');
 
 // ─── CRUD ────────────────────────────────────────────────
 
@@ -193,6 +194,13 @@ const payCommitment = async (req, res, next) => {
     }
 
     res.json({ success: true, log });
+
+    // Real-time: notify all user's devices that a commitment was paid
+    emitToUser(req.user._id.toString(), 'commitment:paid', {
+      commitmentId: req.params.id,
+      logId: log._id,
+      month, year,
+    });
   } catch (err) { next(err); }
 };
 

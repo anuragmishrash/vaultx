@@ -9,6 +9,7 @@ import { useAuthStore, useUIStore } from '../../store/authStore';
 import { useIsTablet } from '../../hooks/useMediaQuery';
 import { authAPI } from '../../api';
 import toast from 'react-hot-toast';
+import LiveIndicator from '../ui/LiveIndicator';
 
 export default function Sidebar() {
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
@@ -68,6 +69,7 @@ export default function Sidebar() {
                 <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 15 }}>V</span>
               </div>
               <span style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: 18, letterSpacing: '-0.02em', color: '#EAEDF5' }}>VAULT</span>
+              <LiveIndicator />
             </motion.div>
           )}
         </AnimatePresence>

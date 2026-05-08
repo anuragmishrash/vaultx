@@ -5,6 +5,7 @@ const { Parser } = require('json2csv');
 const { findMatchingCommitment } = require('../utils/brainEngine');
 const { invalidateAndRefresh } = require('../utils/zeroDayEngine');
 const { parseDateParams, getSpendingForPeriod } = require('../utils/spendCalculator');
+const { emitToUser } = require('../socket');
 
 // ── helper: deduct from account after a spend ────────────────────────────────
 async function deductFromAccount(accountId, userId, amount, note) {
@@ -242,6 +243,9 @@ const createTransaction = async (req, res, next) => {
     } catch (_) { /* non-fatal */ }
 
     res.status(201).json({ success: true, transaction, commitmentMatch });
+
+    // Real-time: notify all user's devices
+    emitToUser(req.user._id.toString(), 'transaction:created', { transactionId: transaction._id });
   } catch (err) {
     next(err);
   }
@@ -291,6 +295,9 @@ const updateTransaction = async (req, res, next) => {
     await invalidateAndRefresh(req.user._id, datesToInvalidate);
 
     res.json({ success: true, transaction });
+
+    // Real-time: notify all user's devices
+    emitToUser(req.user._id.toString(), 'transaction:updated', { transactionId: transaction._id });
   } catch (err) {
     next(err);
   }
@@ -310,6 +317,10 @@ const deleteTransaction = async (req, res, next) => {
     }
 
     await invalidateAndRefresh(req.user._id, [new Date(transaction.date)]);
+
+    // Real-time: notify all user's devices
+    emitToUser(req.user._id.toString(), 'transaction:deleted', { transactionId: req.params.id });
+
     res.json({ success: true, message: 'Transaction deleted' });
   } catch (err) {
     next(err);
