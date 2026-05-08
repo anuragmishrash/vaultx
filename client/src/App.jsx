@@ -50,7 +50,6 @@ const queryClient = new QueryClient({
 });
 
 // ── Silently restore access token from httpOnly refresh cookie on page load ──
-let tokenRefreshStarted = false; // module-level guard — prevents double-invoke in StrictMode
 
 function TokenRefresher({ children }) {
   const { isAuthenticated, setAccessToken, logout } = useAuthStore();
@@ -71,9 +70,6 @@ function TokenRefresher({ children }) {
       return;
     }
 
-    // Guard against StrictMode double-invoke
-    if (tokenRefreshStarted) { setReady(true); return; }
-    tokenRefreshStarted = true;
 
     // No token at all — call the refresh-token endpoint (uses httpOnly cookie)
     axios.post(
