@@ -844,29 +844,29 @@ export default function Dashboard() {
                             Spend Breakdown
                           </p>
 
-                          {/* Variable Spent */}
+                          {/* Regular spends = variable + guilt-free (all personal spending) */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                             <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
                               Regular spends
                             </span>
                             <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
-                              ₹{(data?.infoVariableSpend ?? 0).toLocaleString('en-IN')}
+                              ₹{((data?.infoVariableSpend ?? 0) + (data?.infoGuiltFree ?? 0)).toLocaleString('en-IN')}
                             </span>
                           </div>
 
-                          {/* Guilt Free */}
+                          {/* Guilt-free — informational sub-row, only if > 0 */}
                           {(data?.infoGuiltFree ?? 0) > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
-                                Guilt-free
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', paddingLeft: '10px' }}>
+                              <span style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65' }}>
+                                ↳ Guilt-free allowance
                               </span>
-                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
+                              <span style={{ fontFamily: 'Inter', fontSize: '11px', color: '#4A4E65' }}>
                                 ₹{(data?.infoGuiltFree ?? 0).toLocaleString('en-IN')}
                               </span>
                             </div>
                           )}
 
-                          {/* Commitments paid this period */}
+                          {/* Bills paid */}
                           {(data?.infoBillsPaid ?? 0) > 0 && (
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                               <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
@@ -878,25 +878,13 @@ export default function Dashboard() {
                             </div>
                           )}
 
-                          {/* Variable transactions this period */}
-                          {(data?.infoVariableSpend ?? 0) > 0 && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
-                                Regular spends
-                              </span>
-                              <span style={{ fontFamily: 'Inter', fontSize: '12px', color: '#9295A8' }}>
-                                ₹{(data?.infoVariableSpend ?? 0).toLocaleString('en-IN')}
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Total period spending */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '5px', borderTop: '0.5px solid rgba(255,255,255,0.06)', marginTop: '2px' }}>
+                          {/* Total out = regular + guilt-free + bills */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '5px', borderTop: '0.5px solid rgba(255,255,255,0.06)', marginTop: '6px' }}>
                             <span style={{ fontFamily: 'Inter', fontSize: '12px', fontWeight: 500, color: '#EAEDF5' }}>
                               Total out
                             </span>
                             <span style={{ fontFamily: 'Outfit', fontSize: '12px', fontWeight: 700, color: '#EAEDF5' }}>
-                              ₹{((data?.infoBillsPaid ?? 0) + (data?.infoVariableSpend ?? 0)).toLocaleString('en-IN')}
+                              ₹{((data?.infoVariableSpend ?? 0) + (data?.infoGuiltFree ?? 0) + (data?.infoBillsPaid ?? 0)).toLocaleString('en-IN')}
                             </span>
                           </div>
                         </div>

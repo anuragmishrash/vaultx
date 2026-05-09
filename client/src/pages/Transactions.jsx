@@ -385,11 +385,11 @@ export default function Transactions() {
 
             <span style={{ color:'#2E3047' }}>·</span>
 
-            {/* Regular spend — primary */}
+            {/* Regular spend — all personal spending (variable + guilt-free) */}
             <div style={{ display:'flex', alignItems:'center', gap:'4px' }}>
               <span style={{ fontFamily:'Inter', fontSize:'12px', color:'#9295A8' }}>Regular:</span>
               <span style={{ fontFamily:'Outfit', fontWeight:700, fontSize:'14px', color:'#EAEDF5' }}>
-                ₹{(data?.summary?.variableTotal ?? 0).toLocaleString('en-IN')}
+                ₹{((data?.summary?.variableTotal ?? 0) + (data?.summary?.guiltyFreeTotal ?? 0)).toLocaleString('en-IN')}
               </span>
             </div>
 
