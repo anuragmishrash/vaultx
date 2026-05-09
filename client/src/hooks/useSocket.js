@@ -1,73 +1,113 @@
 /**
  * useSocket.js — VAULT real-time hook
- * Connects to Socket.IO and invalidates React Query caches on server events.
- * Place this ONCE in ProtectedLayout — not in individual pages.
+ * Connects to Socket.IO and invalidates React Query caches on 'data:changed' events.
+ * Mount this ONCE in ProtectedLayout — not in individual pages.
  */
 
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
-import { connectSocket, disconnectSocket } from '../socket/socketClient';
+import { io } from 'socket.io-client';
+
+const SOCKET_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')
+  .replace('/api', '');
+
+// Module-level socket — ONE instance for the entire app session
+let socketInstance = null;
+
+// Maps 'resource' value from server events → React Query cache keys to invalidate
+const RESOURCE_KEYS = {
+  transactions: [['transactions'], ['batch-daily'], ['pattern-suggestions-transactions']],
+  dashboard:    [['dashboard'], ['chart-data']],
+  commitments:  [['commitments'], ['waterfall']],
+  waterfall:    [['waterfall']],
+  accounts:     [['accounts'], ['accounts-summary'], ['dashboard']],
+  'my-money':   [['accounts'], ['net-worth']],
+  zeroday:      [['zeroday-streak'], ['zeroday-calendar'], ['dashboard']],
+  cash:         [['cash-envelope'], ['dashboard']],
+  mood:         [['mood'], ['mood-correlation']],
+};
+
+export function getSocketInstance() {
+  return socketInstance;
+}
 
 export function useSocket() {
   const queryClient   = useQueryClient();
   const { accessToken, isAuthenticated } = useAuthStore();
-  const connectedRef  = useRef(false);
+  const listenersRef  = useRef(false);
 
   useEffect(() => {
-    // Don't connect without a valid token
-    if (!isAuthenticated || !accessToken || connectedRef.current) return;
+    if (!isAuthenticated || !accessToken) return;
 
-    const socket = connectSocket(accessToken);
-    connectedRef.current = true;
+    // Create or reconnect socket if needed
+    if (!socketInstance || !socketInstance.connected) {
+      if (socketInstance) {
+        socketInstance.disconnect();
+        socketInstance = null;
+      }
 
-    // ── TRANSACTION EVENTS ──────────────────────────────────────────────────
-    const onTxCreated = () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['zeroday-streak'] });
-      queryClient.invalidateQueries({ queryKey: ['zeroday-calendar'] });
-    };
+      socketInstance = io(SOCKET_URL, {
+        auth:               { token: accessToken },
+        transports:         ['websocket', 'polling'],
+        reconnection:       true,
+        reconnectionAttempts: 10,
+        reconnectionDelay:  2000,
+        reconnectionDelayMax: 10000,
+        timeout:            20000,
+      });
+    }
 
-    const onTxUpdated = () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-    };
+    // Prevent attaching duplicate listeners across re-renders
+    if (listenersRef.current) return;
+    listenersRef.current = true;
 
-    const onTxDeleted = () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['zeroday-streak'] });
-    };
+    socketInstance.on('connect', () => {
+      console.log('[Socket] ✅ Connected:', socketInstance.id);
+    });
 
-    // ── COMMITMENT EVENTS ───────────────────────────────────────────────────
-    const onCommitmentPaid = () => {
-      queryClient.invalidateQueries({ queryKey: ['waterfall'] });
-      queryClient.invalidateQueries({ queryKey: ['commitments'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-    };
+    socketInstance.on('disconnect', (reason) => {
+      console.log('[Socket] Disconnected:', reason);
+      if (reason === 'io server disconnect') {
+        // Server disconnected us explicitly — try to reconnect
+        socketInstance.connect();
+      }
+    });
 
-    // ── ACCOUNT EVENTS ──────────────────────────────────────────────────────
-    const onAccountUpdated = () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['waterfall'] });
-    };
+    socketInstance.on('connect_error', (err) => {
+      // Non-fatal — app continues to work, just no real-time updates
+      console.warn('[Socket] Connection error (real-time disabled):', err.message);
+    });
 
-    socket.on('transaction:created', onTxCreated);
-    socket.on('transaction:updated', onTxUpdated);
-    socket.on('transaction:deleted', onTxDeleted);
-    socket.on('commitment:paid',     onCommitmentPaid);
-    socket.on('account:updated',     onAccountUpdated);
+    // ── THE ONLY EVENT WE LISTEN FOR ────────────────────────────────────────
+    // Server emits 'data:changed' with { resource, action } after every mutation.
+    // We look up which React Query keys to invalidate for that resource.
+    socketInstance.on('data:changed', ({ resource, action }) => {
+      console.log(`[Socket] 🔄 data:changed → ${resource} (${action})`);
+
+      const keys = RESOURCE_KEYS[resource] || [];
+      keys.forEach(key => queryClient.invalidateQueries({ queryKey: key }));
+    });
 
     return () => {
-      socket.off('transaction:created', onTxCreated);
-      socket.off('transaction:updated', onTxUpdated);
-      socket.off('transaction:deleted', onTxDeleted);
-      socket.off('commitment:paid',     onCommitmentPaid);
-      socket.off('account:updated',     onAccountUpdated);
-      connectedRef.current = false;
-      disconnectSocket();
+      // Remove listeners on cleanup but KEEP the socket alive across navigation
+      if (socketInstance) {
+        socketInstance.off('data:changed');
+        socketInstance.off('connect');
+        socketInstance.off('disconnect');
+        socketInstance.off('connect_error');
+      }
+      listenersRef.current = false;
     };
-  }, [isAuthenticated, accessToken]); // reconnect if token changes
+  }, [isAuthenticated, accessToken]); // re-run if token changes (e.g. after login)
+
+  // Disconnect socket when user logs out
+  useEffect(() => {
+    return () => {
+      if (!useAuthStore.getState().isAuthenticated && socketInstance) {
+        socketInstance.disconnect();
+        socketInstance = null;
+      }
+    };
+  }, []);
 }

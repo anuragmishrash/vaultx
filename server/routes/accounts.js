@@ -5,6 +5,7 @@ const User = require('../models/User');
 const CommitmentLog = require('../models/CommitmentLog');
 const Commitment = require('../models/Commitment');
 const mongoose = require('mongoose');
+const { safeEmit } = require('../socket');
 
 const toId = (id) => new mongoose.Types.ObjectId(id.toString());
 
@@ -79,6 +80,8 @@ router.post('/', protect, async (req, res, next) => {
     }
 
     res.status(201).json({ success: true, data: account });
+    safeEmit(req.user._id, 'accounts',   'created');
+    safeEmit(req.user._id, 'dashboard',  'refresh');
   } catch (err) { next(err); }
 });
 
@@ -99,6 +102,8 @@ router.patch('/:id/balance', protect, async (req, res, next) => {
     );
     if (!account) return res.status(404).json({ message: 'Account not found' });
     res.json({ success: true, data: account });
+    safeEmit(req.user._id, 'accounts',   'balance_updated');
+    safeEmit(req.user._id, 'dashboard',  'refresh');
   } catch (err) { next(err); }
 });
 
@@ -155,6 +160,8 @@ router.post('/transfer', protect, async (req, res, next) => {
 
     await Promise.all([from.save(), to.save()]);
     res.json({ success: true, message: `₹${amt.toLocaleString('en-IN')} transferred from ${from.name} to ${to.name}` });
+    safeEmit(req.user._id, 'accounts',  'balance_updated');
+    safeEmit(req.user._id, 'dashboard', 'refresh');
   } catch (err) { next(err); }
 });
 
@@ -180,6 +187,8 @@ router.delete('/:id', protect, async (req, res, next) => {
       }
     }
     res.json({ success: true });
+    safeEmit(req.user._id, 'accounts',  'deleted');
+    safeEmit(req.user._id, 'dashboard', 'refresh');
   } catch (err) { next(err); }
 });
 

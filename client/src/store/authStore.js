@@ -35,6 +35,9 @@ export const useAuthStore = create(
         set({ accessToken: token });
       },
 
+      // Restore user object (e.g. from refresh-token response)
+      setUser: (user) => set({ user, isAuthenticated: !!user }),
+
       updateUser: (updates) => set(state => ({ user: { ...state.user, ...updates } })),
 
       logout: () => {

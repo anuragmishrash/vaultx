@@ -52,43 +52,45 @@ const queryClient = new QueryClient({
 // ── Silently restore access token from httpOnly refresh cookie on page load ──
 
 function TokenRefresher({ children }) {
-  const { isAuthenticated, setAccessToken, logout } = useAuthStore();
+  const { setAuth, setAccessToken, logout } = useAuthStore();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      setReady(true);
-      return;
-    }
+    const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-    // If we already have a token in memory (or localStorage), use it immediately
-    const storedToken = window.__vaultAccessToken || localStorage.getItem('vault_access_token');
-    if (storedToken) {
-      window.__vaultAccessToken = storedToken;
-      setAccessToken(storedToken);
-      setReady(true);
-      return;
-    }
-
-
-    // No token at all — call the refresh-token endpoint (uses httpOnly cookie)
+    // ALWAYS try refresh-token on every page load.
+    // The httpOnly cookie keeps the session alive even when the access token
+    // in localStorage is expired. One call restores both token + user.
     axios.post(
-      `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/auth/refresh-token`,
+      `${API}/auth/refresh-token`,
       {},
-      { withCredentials: true, timeout: 15000 }
+      { withCredentials: true, timeout: 20000 }
     )
       .then(({ data }) => {
         if (data.accessToken) {
+          // Store token in memory + localStorage for the interceptor
           window.__vaultAccessToken = data.accessToken;
           try { localStorage.setItem('vault_access_token', data.accessToken); } catch {}
-          setAccessToken(data.accessToken);
+
+          if (data.user) {
+            // Restore full session — token + user in one shot
+            setAuth(data.user, data.accessToken);
+          } else {
+            setAccessToken(data.accessToken);
+          }
         } else {
+          // Refresh endpoint returned 200 but no token — clear stale state
           logout();
         }
       })
-      .catch(() => {
-        // Refresh cookie expired — must re-login (but don't loop if already on /login)
-        logout();
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          // Refresh cookie expired — must re-login
+          logout();
+        }
+        // 429 or network error — don't logout, just mark ready
+        // (user stays logged in from persisted zustand state)
       })
       .finally(() => setReady(true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -100,9 +102,11 @@ function TokenRefresher({ children }) {
           width: 48, height: 48, borderRadius: 14,
           background: 'linear-gradient(145deg,#F7B733,#E08A00)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'vaultPulse 1.4s ease-in-out infinite',
         }}>
           <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 20 }}>V</span>
         </div>
+        <style>{`@keyframes vaultPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.6;transform:scale(0.92)}}`}</style>
       </div>
     );
   }

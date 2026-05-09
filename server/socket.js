@@ -63,10 +63,6 @@ function initSocket(httpServer) {
 /**
  * Emit a real-time event to ALL devices of a specific user.
  * Safe to call even before socket.io is initialized (no-ops gracefully).
- *
- * @param {string} userId  — MongoDB ObjectId as string
- * @param {string} event   — event name (e.g. 'transaction:created')
- * @param {object} data    — payload
  */
 function emitToUser(userId, event, data) {
   if (!io) return;
@@ -76,4 +72,25 @@ function emitToUser(userId, event, data) {
   });
 }
 
-module.exports = { initSocket, emitToUser };
+/**
+ * safeEmit — unified helper for all controllers.
+ * Emits a 'data:changed' event so the frontend knows which cache to invalidate.
+ *
+ * @param {string|ObjectId} userId   — MongoDB user ID
+ * @param {string}          resource — 'transactions' | 'dashboard' | 'commitments' | 'accounts' | 'zeroday' | 'cash' | 'mood'
+ * @param {string}          action   — 'created' | 'updated' | 'deleted' | 'paid' | 'refresh'
+ */
+function safeEmit(userId, resource, action = 'refresh') {
+  try {
+    if (!userId) return;
+    emitToUser(userId.toString(), 'data:changed', {
+      resource,
+      action,
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    console.error('[Socket] safeEmit failed:', err.message);
+  }
+}
+
+module.exports = { initSocket, emitToUser, safeEmit };

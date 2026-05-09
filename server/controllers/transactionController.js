@@ -5,7 +5,7 @@ const { Parser } = require('json2csv');
 const { findMatchingCommitment } = require('../utils/brainEngine');
 const { invalidateAndRefresh } = require('../utils/zeroDayEngine');
 const { parseDateParams, getSpendingForPeriod } = require('../utils/spendCalculator');
-const { emitToUser } = require('../socket');
+const { safeEmit } = require('../socket');
 
 // ── helper: deduct from account after a spend ────────────────────────────────
 async function deductFromAccount(accountId, userId, amount, note) {
@@ -244,8 +244,10 @@ const createTransaction = async (req, res, next) => {
 
     res.status(201).json({ success: true, transaction, commitmentMatch });
 
-    // Real-time: notify all user's devices
-    emitToUser(req.user._id.toString(), 'transaction:created', { transactionId: transaction._id });
+    // Real-time: invalidate transactions + dashboard on all user devices
+    safeEmit(req.user._id, 'transactions', 'created');
+    safeEmit(req.user._id, 'dashboard',    'refresh');
+    safeEmit(req.user._id, 'zeroday',      'refresh');
   } catch (err) {
     next(err);
   }
@@ -296,8 +298,9 @@ const updateTransaction = async (req, res, next) => {
 
     res.json({ success: true, transaction });
 
-    // Real-time: notify all user's devices
-    emitToUser(req.user._id.toString(), 'transaction:updated', { transactionId: transaction._id });
+    // Real-time
+    safeEmit(req.user._id, 'transactions', 'updated');
+    safeEmit(req.user._id, 'dashboard',    'refresh');
   } catch (err) {
     next(err);
   }
@@ -318,8 +321,10 @@ const deleteTransaction = async (req, res, next) => {
 
     await invalidateAndRefresh(req.user._id, [new Date(transaction.date)]);
 
-    // Real-time: notify all user's devices
-    emitToUser(req.user._id.toString(), 'transaction:deleted', { transactionId: req.params.id });
+    // Real-time
+    safeEmit(req.user._id, 'transactions', 'deleted');
+    safeEmit(req.user._id, 'dashboard',    'refresh');
+    safeEmit(req.user._id, 'zeroday',      'refresh');
 
     res.json({ success: true, message: 'Transaction deleted' });
   } catch (err) {

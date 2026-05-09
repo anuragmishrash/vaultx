@@ -8,7 +8,7 @@ const { computeWaterfall } = require('../utils/waterfallEngine');
 const { getCommitmentStatusForMonth } = require('../utils/commitmentHelpers');
 const { predictFlexibleAmount, detectUnaddedCommitments, detectYoYDrift } = require('../utils/brainEngine');
 const { invalidateAndRefresh } = require('../utils/zeroDayEngine');
-const { emitToUser } = require('../socket');
+const { safeEmit } = require('../socket');
 
 // ─── CRUD ────────────────────────────────────────────────
 
@@ -23,6 +23,8 @@ const createCommitment = async (req, res, next) => {
   try {
     const c = await Commitment.create({ ...req.body, userId: req.user._id });
     res.status(201).json({ success: true, commitment: c });
+    safeEmit(req.user._id, 'commitments', 'created');
+    safeEmit(req.user._id, 'dashboard',   'refresh');
   } catch (err) { next(err); }
 };
 
@@ -42,6 +44,8 @@ const deleteCommitment = async (req, res, next) => {
   try {
     await Commitment.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
     res.json({ success: true, message: 'Deleted' });
+    safeEmit(req.user._id, 'commitments', 'deleted');
+    safeEmit(req.user._id, 'dashboard',   'refresh');
   } catch (err) { next(err); }
 };
 
@@ -195,12 +199,10 @@ const payCommitment = async (req, res, next) => {
 
     res.json({ success: true, log });
 
-    // Real-time: notify all user's devices that a commitment was paid
-    emitToUser(req.user._id.toString(), 'commitment:paid', {
-      commitmentId: req.params.id,
-      logId: log._id,
-      month, year,
-    });
+    // Real-time: notify all user's devices
+    safeEmit(req.user._id, 'commitments', 'paid');
+    safeEmit(req.user._id, 'waterfall',   'refresh');
+    safeEmit(req.user._id, 'dashboard',   'refresh');
   } catch (err) { next(err); }
 };
 

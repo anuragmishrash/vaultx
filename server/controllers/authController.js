@@ -105,7 +105,7 @@ const refreshToken = async (req, res, next) => {
     if (!token) return res.status(401).json({ success: false, message: 'No refresh token' });
 
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id).select('-password -refreshToken');
     if (!user || user.refreshToken !== token) {
       return res.status(401).json({ success: false, message: 'Invalid refresh token' });
     }
@@ -120,10 +120,12 @@ const refreshToken = async (req, res, next) => {
       maxAge:   7 * 24 * 60 * 60 * 1000,
     });
 
-    res.json({ success: true, accessToken });
-  } catch (err) {
-    next(err);
-  }
+    // Return both token AND user so frontend can restore full session in one call
+    const userObj = user.toObject();
+    delete userObj.__v;
+
+    res.json({ success: true, accessToken, user: userObj });
+  } catch (err) { next(err); }
 };
 
 const getMe = async (req, res) => {
