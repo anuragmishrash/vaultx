@@ -1,5 +1,6 @@
 const MoodLog = require('../models/MoodLog');
 const Transaction = require('../models/Transaction');
+const { safeEmit } = require('../socket');
 
 const MOOD_SCORES = { great: 5, good: 4, neutral: 3, stressed: 2, sad: 1, angry: 1 };
 
@@ -30,6 +31,7 @@ const logMood = async (req, res, next) => {
     });
 
     res.status(201).json({ success: true, log });
+    safeEmit(req.user._id, 'mood', 'logged');
   } catch (err) {
     next(err);
   }

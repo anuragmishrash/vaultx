@@ -1,5 +1,6 @@
 const CashEnvelope = require('../models/CashEnvelope');
 const Transaction = require('../models/Transaction');
+const { safeEmit } = require('../socket');
 
 const getOrCreateEnvelope = async (userId, month, year) => {
   let env = await CashEnvelope.findOne({ userId, month, year });
@@ -68,6 +69,8 @@ exports.createEnvelope = async (req, res, next) => {
 
     const updated = await recomputeEnvelope(req.user.id, m, y);
     res.json({ envelope: updated });
+    safeEmit(req.user.id, 'cash',      'created');
+    safeEmit(req.user.id, 'dashboard', 'refresh');
   } catch (err) { next(err); }
 };
 
@@ -108,6 +111,8 @@ exports.countWallet = async (req, res, next) => {
 
     const updated = await recomputeEnvelope(req.user.id, month, year);
     res.json({ envelope: updated, gap, message: gap > 0 ? `₹${gap} logged as Untracked Cash` : 'All cash accounted for!' });
+    safeEmit(req.user.id, 'cash',      'counted');
+    safeEmit(req.user.id, 'dashboard', 'refresh');
   } catch (err) { next(err); }
 };
 

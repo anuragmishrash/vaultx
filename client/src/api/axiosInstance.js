@@ -96,6 +96,10 @@ api.interceptors.response.use(
         try {
           const { useAuthStore } = await import('../store/authStore');
           useAuthStore.getState().setAccessToken(newToken);
+          // Also restore user data if available (session restore)
+          if (data.user) {
+            useAuthStore.getState().setUser(data.user);
+          }
         } catch {}
 
         refreshQueue.forEach(p => p.resolve(newToken));
