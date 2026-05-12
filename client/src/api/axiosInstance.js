@@ -85,23 +85,31 @@ api.interceptors.response.use(
       isRefreshing    = true;
 
       try {
-        const { data } = await axios.post(
-          `${API_BASE_URL}/auth/refresh-token`,
-          {},
-          { withCredentials: true, timeout: 15000 }
-        );
+        // Use native fetch to avoid interceptor re-entry
+        const res = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
+          method:      'POST',
+          credentials: 'include',
+          headers:     { 'Content-Type': 'application/json' },
+        });
+
+        if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
+
+        const data = await res.json();
+        if (!data.accessToken) throw new Error('No token in response');
+
         const newToken = data.accessToken;
         setToken(newToken);
 
+        // Update auth store
         try {
           const { useAuthStore } = await import('../store/authStore');
           useAuthStore.getState().setAccessToken(newToken);
-          // Also restore user data if available (session restore)
           if (data.user) {
             useAuthStore.getState().setUser(data.user);
           }
         } catch {}
 
+        // Resume all queued requests
         refreshQueue.forEach(p => p.resolve(newToken));
         refreshQueue = [];
         original.headers.Authorization = `Bearer ${newToken}`;
@@ -114,6 +122,10 @@ api.interceptors.response.use(
         // Only redirect if NOT already on a public page — prevents infinite loop
         const pub = ['/login', '/register', '/'];
         if (!pub.some(p => window.location.pathname.startsWith(p))) {
+          try {
+            const { useAuthStore } = await import('../store/authStore');
+            useAuthStore.getState().setUnauthenticated();
+          } catch {}
           window.location.replace('/login');
         }
         return Promise.reject(err);

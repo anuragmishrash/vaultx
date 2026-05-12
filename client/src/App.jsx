@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
@@ -49,79 +49,105 @@ const queryClient = new QueryClient({
   },
 });
 
-// ── Silently restore access token from httpOnly refresh cookie on page load ──
+// ── Module-level flag — survives React StrictMode double-mount ──
+let authBootstrapped = false;
 
-function TokenRefresher({ children }) {
-  const { setAuth, setAccessToken, logout } = useAuthStore();
-  const [ready, setReady] = useState(false);
+// ── AuthProvider — restores session from httpOnly refresh cookie on page load ──
+// Uses native fetch (not axios) to avoid interceptor interference.
+function AuthProvider({ children }) {
+  const { setAuth, setUnauthenticated } = useAuthStore();
+  const initRef = useRef(false);
 
   useEffect(() => {
-    const API = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    if (initRef.current || authBootstrapped) {
+      return;
+    }
+    initRef.current  = true;
+    authBootstrapped = true;
 
-    // ALWAYS try refresh-token on every page load.
-    // The httpOnly cookie keeps the session alive even when the access token
-    // in localStorage is expired. One call restores both token + user.
-    axios.post(
-      `${API}/auth/refresh-token`,
-      {},
-      { withCredentials: true, timeout: 20000 }
-    )
-      .then(({ data }) => {
-        if (data.accessToken) {
-          // Store token in memory + localStorage for the interceptor
-          window.__vaultAccessToken = data.accessToken;
-          try { localStorage.setItem('vault_access_token', data.accessToken); } catch {}
+    const restoreSession = async () => {
+      try {
+        const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-          if (data.user) {
-            // Restore full session — token + user in one shot
-            setAuth(data.user, data.accessToken);
-          } else {
-            setAccessToken(data.accessToken);
-          }
-        } else {
-          // Refresh endpoint returned 200 but no token — clear stale state
-          logout();
+        // Use native fetch — NOT axios — to avoid interceptor loops
+        const res = await fetch(`${BASE}/auth/refresh-token`, {
+          method:      'POST',
+          credentials: 'include',    // sends httpOnly cookie cross-origin
+          headers:     { 'Content-Type': 'application/json' },
+        });
+
+        if (!res.ok) {
+          // 401 = session expired, 404 = route not deployed, 204 = backend bug
+          console.warn(`[Auth] Refresh failed: HTTP ${res.status}`);
+          setUnauthenticated();
+          return;
         }
-      })
-      .catch((err) => {
-        const status = err?.response?.status;
-        if (status === 401 || status === 403) {
-          // Refresh cookie expired — must re-login
-          logout();
+
+        const data = await res.json();
+
+        if (!data.accessToken || !data.user) {
+          console.error('[Auth] refresh-token response missing accessToken or user:', data);
+          setUnauthenticated();
+          return;
         }
-        // 429 or network error — don't logout, just mark ready
-        // (user stays logged in from persisted zustand state)
-      })
-      .finally(() => setReady(true));
+
+        // Store token for axios interceptor
+        window.__vaultAccessToken = data.accessToken;
+        try { localStorage.setItem('vault_access_token', data.accessToken); } catch {}
+
+        // Atomically restore full session — unblocks ProtectedLayout + useAuthQuery
+        setAuth(data.user, data.accessToken);
+        console.log('[Auth] ✓ Session restored for:', data.user.email || data.user.name);
+
+      } catch (err) {
+        // Network error, server sleeping, offline
+        console.warn('[Auth] Restore failed:', err.message);
+        setUnauthenticated();
+      }
+    };
+
+    restoreSession();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!ready) {
-    return (
-      <div className="h-screen flex items-center justify-center" style={{ background: '#05060F' }}>
-        <div style={{
-          width: 48, height: 48, borderRadius: 14,
-          background: 'linear-gradient(145deg,#F7B733,#E08A00)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          animation: 'vaultPulse 1.4s ease-in-out infinite',
-        }}>
-          <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 20 }}>V</span>
-        </div>
-        <style>{`@keyframes vaultPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.6;transform:scale(0.92)}}`}</style>
-      </div>
-    );
-  }
 
   return children;
 }
 
+// ── Loading splash shown while session is restoring ──
+function VaultSplash() {
+  return (
+    <div className="h-screen flex flex-col items-center justify-center gap-5" style={{ background: '#05060F' }}>
+      <div style={{
+        width: 52, height: 52, borderRadius: 14,
+        background: 'linear-gradient(145deg,#F7B733,#E08A00)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 0 32px rgba(245,166,35,0.45)',
+        animation: 'vaultPulse 1.4s ease-in-out infinite',
+      }}>
+        <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 22 }}>V</span>
+      </div>
+      <p style={{ fontFamily: 'Outfit', fontWeight: 600, fontSize: 16, color: '#EAEDF5', margin: 0 }}>VAULT</p>
+      <p style={{ fontFamily: 'Inter', fontSize: 13, color: '#4A4E65', margin: 0 }}>Restoring your session…</p>
+      <style>{`
+        @keyframes vaultPulse {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 32px rgba(245,166,35,0.45); }
+          50%       { transform: scale(1.07); box-shadow: 0 0 52px rgba(245,166,35,0.65); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function ProtectedLayout() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isLoading, isLoggingOut } = useAuthStore();
   const { sidebarCollapsed, addTransactionOpen, setAddTransactionOpen } = useUIStore();
   const isMobile = useIsMobile();
   const isTablet = useIsTablet();
 
   // Real-time updates — connect socket for entire authenticated session
   useSocket();
+
+  // Still restoring session — show splash (prevents flash of login + 401 cascade)
+  if (isLoading || isLoggingOut) return <VaultSplash />;
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
@@ -166,7 +192,9 @@ function ProtectedLayout() {
 }
 
 function PublicRoute({ children }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isLoading } = useAuthStore();
+  // While loading, don't redirect — wait for session restore
+  if (isLoading) return <VaultSplash />;
   return isAuthenticated ? <Navigate to="/dashboard" replace /> : children;
 }
 
@@ -174,7 +202,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <TokenRefresher>
+        <AuthProvider>
           <Toaster
             position="top-right"
             toastOptions={{
@@ -183,17 +211,7 @@ export default function App() {
               error: { iconTheme: { primary: '#FF5C5C', secondary: '#05060F' } },
             }}
           />
-          <Suspense fallback={
-            <div className="h-screen flex items-center justify-center" style={{ background: '#05060F' }}>
-              <div className="logo-pulse" style={{
-                width: 48, height: 48, borderRadius: 14,
-                background: 'linear-gradient(145deg,#F7B733,#E08A00)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 20 }}>V</span>
-              </div>
-            </div>
-          }>
+          <Suspense fallback={<VaultSplash />}>
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
@@ -217,7 +235,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
-        </TokenRefresher>
+        </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

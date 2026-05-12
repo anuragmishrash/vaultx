@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, ArrowLeftRight, Heart, Brain, Ghost,
@@ -7,14 +7,14 @@ import {
 } from 'lucide-react';
 import { useAuthStore, useUIStore } from '../../store/authStore';
 import { useIsTablet } from '../../hooks/useMediaQuery';
-import { authAPI } from '../../api';
+
 import toast from 'react-hot-toast';
 import LiveIndicator from '../ui/LiveIndicator';
 
 export default function Sidebar() {
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
   const { user, logout } = useAuthStore();
-  const navigate = useNavigate();
+
   const isTablet = useIsTablet();
   // On tablets, always use icon-only mode
   const collapsed = isTablet || sidebarCollapsed;
@@ -36,10 +36,8 @@ export default function Sidebar() {
     { to: '/settings',    icon: Settings,       label: 'Settings'      },
   ];
 
-  const handleLogout = async () => {
-    try { await authAPI.logout(); } catch { }
+  const handleLogout = () => {
     logout();
-    navigate('/login');
     toast.success('Logged out');
   };
 

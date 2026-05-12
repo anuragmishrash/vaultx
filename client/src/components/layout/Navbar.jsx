@@ -34,11 +34,9 @@ export default function Navbar() {
   const location  = useLocation();
   const navigate  = useNavigate();
 
-  const handleLogout = async () => {
-    try { await authAPI.logout(); } catch {}
+  const handleLogout = () => {
     logout();
     setShowSideDrawer(false);
-    navigate('/login');
     toast.success('Logged out');
   };
 

@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'vault_access_token';
@@ -12,63 +11,75 @@ function saveToken(token) {
     try { localStorage.removeItem(TOKEN_KEY); } catch {}
   }
 }
-
-function loadToken() {
-  try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
-}
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const useAuthStore = create(
-  persist(
-    (set, get) => ({
-      user: null,
-      accessToken: null,
+export const useAuthStore = create((set, get) => ({
+  user:            null,
+  accessToken:     null,
+  isAuthenticated: false,
+  isLoading:       true,     // true on first render — prevents flash of login page
+  isLoggingOut:    false,
+
+  // Called after successful login OR session restore from refresh-token
+  // Atomically sets everything — unblocks all useAuthQuery hooks
+  setAuth: (user, accessToken) => {
+    saveToken(accessToken);
+    set({
+      user,
+      accessToken,
+      isAuthenticated: true,
+      isLoading:       false,
+      isLoggingOut:    false,
+    });
+  },
+
+  // Called when auth fails or no session found (marks loading complete)
+  setUnauthenticated: () => {
+    saveToken(null);
+    set({
+      user:            null,
+      accessToken:     null,
       isAuthenticated: false,
+      isLoading:       false,
+    });
+  },
 
-      setAuth: (user, accessToken) => {
-        saveToken(accessToken);
-        set({ user, accessToken, isAuthenticated: true });
-      },
+  // Update just the token (e.g. after silent refresh mid-session via interceptor)
+  setAccessToken: (token) => {
+    saveToken(token);
+    set({ accessToken: token });
+  },
 
-      setAccessToken: (token) => {
-        saveToken(token);
-        set({ accessToken: token });
-      },
+  // Restore user object (e.g. from refresh-token response in interceptor)
+  setUser: (user) => set({ user, isAuthenticated: !!user }),
 
-      // Restore user object (e.g. from refresh-token response)
-      setUser: (user) => set({ user, isAuthenticated: !!user }),
+  updateUser: (updates) => set(state => ({ user: { ...state.user, ...updates } })),
 
-      updateUser: (updates) => set(state => ({ user: { ...state.user, ...updates } })),
+  logout: async () => {
+    if (get().isLoggingOut) return;
+    set({ isLoggingOut: true });
 
-      logout: () => {
-        saveToken(null);
-        set({ user: null, accessToken: null, isAuthenticated: false });
-      },
-    }),
-    {
-      name: 'vault-auth',
-      // Persist user + auth flag + the token itself
-      partialize: (state) => ({
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        accessToken: state.accessToken,
-      }),
-      onRehydrateStorage: () => (state) => {
-        // On rehydration, re-populate the in-memory global AND localStorage slot
-        if (state?.accessToken) {
-          saveToken(state.accessToken);
-        } else {
-          // Try localStorage directly in case zustand didn't persist it
-          const stored = loadToken();
-          if (stored && state) {
-            state.accessToken = stored;
-            saveToken(stored);
-          }
-        }
-      },
-    }
-  )
-);
+    try {
+      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      await fetch(`${BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(get().accessToken ? { 'Authorization': `Bearer ${get().accessToken}` } : {}),
+        },
+      });
+    } catch { /* ignore */ }
+
+    saveToken(null);
+    set({
+      user: null, accessToken: null,
+      isAuthenticated: false, isLoading: false, isLoggingOut: false,
+    });
+
+    window.location.replace('/login');
+  },
+}));
 
 export const useUIStore = create((set) => ({
   sidebarCollapsed: false,
