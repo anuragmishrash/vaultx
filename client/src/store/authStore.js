@@ -14,33 +14,44 @@ function saveToken(token) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const useAuthStore = create((set, get) => ({
-  user:            null,
-  accessToken:     null,
-  isAuthenticated: false,
-  isLoading:       true,     // true on first render — prevents flash of login page
-  isLoggingOut:    false,
+  user:              null,
+  accessToken:       null,
+  isAuthenticated:   false,
+  isLoading:         true,     // true on first render — prevents flash of login page
+  isLoggingOut:      false,
+  serverUnreachable: false,    // server sleeping / network error / backend bug
 
   // Called after successful login OR session restore from refresh-token
-  // Atomically sets everything — unblocks all useAuthQuery hooks
+  // Atomically sets everything — unblocks ProtectedLayout + all queries
   setAuth: (user, accessToken) => {
     saveToken(accessToken);
     set({
       user,
       accessToken,
-      isAuthenticated: true,
-      isLoading:       false,
-      isLoggingOut:    false,
+      isAuthenticated:   true,
+      isLoading:         false,
+      isLoggingOut:      false,
+      serverUnreachable: false,
     });
   },
 
-  // Called when auth fails or no session found (marks loading complete)
+  // Genuine auth failure (401) — user must log in
   setUnauthenticated: () => {
     saveToken(null);
     set({
-      user:            null,
-      accessToken:     null,
-      isAuthenticated: false,
-      isLoading:       false,
+      user:              null,
+      accessToken:       null,
+      isAuthenticated:   false,
+      isLoading:         false,
+      serverUnreachable: false,
+    });
+  },
+
+  // Server sleeping / network error / backend bug — DON'T clear user or redirect
+  setServerUnreachable: () => {
+    set({
+      isLoading:         false,
+      serverUnreachable: true,
     });
   },
 
@@ -75,6 +86,7 @@ export const useAuthStore = create((set, get) => ({
     set({
       user: null, accessToken: null,
       isAuthenticated: false, isLoading: false, isLoggingOut: false,
+      serverUnreachable: false,
     });
 
     window.location.replace('/login');

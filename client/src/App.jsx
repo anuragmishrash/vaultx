@@ -11,7 +11,6 @@ import MobileNav from './components/layout/MobileNav';
 import Navbar from './components/layout/Navbar';
 import AddTransactionModal from './components/features/AddTransactionModal';
 import { CardSkeleton } from './components/ui/Skeleton';
-import axios from 'axios';
 import { usePageTransition } from './utils/animations';
 
 const Landing = lazy(() => import('./pages/Landing'));
@@ -35,84 +34,116 @@ const CashTracker = lazy(() => import('./pages/CashTracker'));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 2 * 60 * 1000,         // 2 min — prevents burst on every mount
-      gcTime:    10 * 60 * 1000,         // 10 min cache
-      refetchOnWindowFocus: false,        // don't refetch on tab switch
+      staleTime: 2 * 60 * 1000,
+      gcTime:    10 * 60 * 1000,
+      refetchOnWindowFocus: false,
       retry: (failureCount, error) => {
         const s = error?.response?.status;
-        if (s === 401 || s === 403 || s === 429) return false; // never retry auth/rate errors
+        if (s === 401 || s === 403 || s === 429) return false;
         return failureCount < 2;
       },
-      retryDelay: (i) => Math.min(1000 * 2 ** i, 10000), // exponential backoff
+      retryDelay: (i) => Math.min(1000 * 2 ** i, 10000),
     },
     mutations: { retry: false },
   },
 });
 
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 // ── Module-level flag — survives React StrictMode double-mount ──
 let authBootstrapped = false;
 
-// ── AuthProvider — restores session from httpOnly refresh cookie on page load ──
-// Uses native fetch (not axios) to avoid interceptor interference.
+// ── Attempt refresh-token with retries for network errors ──
+async function attemptRefresh(maxAttempts = 3) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 15000);
+
+      const res = await fetch(`${BASE}/auth/refresh-token`, {
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        signal:      controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      // 401 = genuine auth failure — don't retry
+      if (res.status === 401) {
+        return { type: 'auth_failure' };
+      }
+
+      // 200 = success — parse and validate
+      if (res.status === 200) {
+        const data = await res.json();
+        if (data.accessToken && data.user) {
+          return { type: 'success', data };
+        }
+        return { type: 'backend_bug', message: 'Response missing accessToken or user' };
+      }
+
+      // 404, 204, etc. = backend bug — don't retry
+      if (res.status === 404 || res.status === 204) {
+        return { type: 'backend_bug', message: `Endpoint returned ${res.status}` };
+      }
+
+      // 500 etc. — retry
+      lastError = new Error(`HTTP ${res.status}`);
+
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        const waitMs = attempt * 2000;
+        console.log(`[Auth] Attempt ${attempt} failed (${err.message}). Retrying in ${waitMs}ms…`);
+        await new Promise(r => setTimeout(r, waitMs));
+      }
+    }
+  }
+
+  return { type: 'network_error', error: lastError };
+}
+
+// ── AuthProvider — restores session on page load ──
 function AuthProvider({ children }) {
-  const { setAuth, setUnauthenticated } = useAuthStore();
+  const { setAuth, setUnauthenticated, setServerUnreachable } = useAuthStore();
   const initRef = useRef(false);
 
   useEffect(() => {
-    if (initRef.current || authBootstrapped) {
-      return;
-    }
+    if (initRef.current || authBootstrapped) return;
     initRef.current  = true;
     authBootstrapped = true;
 
-    const restoreSession = async () => {
-      try {
-        const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    const restore = async () => {
+      const result = await attemptRefresh(3);
 
-        // Use native fetch — NOT axios — to avoid interceptor loops
-        const res = await fetch(`${BASE}/auth/refresh-token`, {
-          method:      'POST',
-          credentials: 'include',    // sends httpOnly cookie cross-origin
-          headers:     { 'Content-Type': 'application/json' },
-        });
+      if (result.type === 'success') {
+        // ✅ Session restored
+        window.__vaultAccessToken = result.data.accessToken;
+        try { localStorage.setItem('vault_access_token', result.data.accessToken); } catch {}
+        setAuth(result.data.user, result.data.accessToken);
+        console.log('[Auth] ✓ Session restored for:', result.data.user.email || result.data.user.name);
 
-        if (!res.ok) {
-          // 401 = session expired, 404 = route not deployed, 204 = backend bug
-          console.warn(`[Auth] Refresh failed: HTTP ${res.status}`);
-          setUnauthenticated();
-          return;
-        }
-
-        const data = await res.json();
-
-        if (!data.accessToken || !data.user) {
-          console.error('[Auth] refresh-token response missing accessToken or user:', data);
-          setUnauthenticated();
-          return;
-        }
-
-        // Store token for axios interceptor
-        window.__vaultAccessToken = data.accessToken;
-        try { localStorage.setItem('vault_access_token', data.accessToken); } catch {}
-
-        // Atomically restore full session — unblocks ProtectedLayout + useAuthQuery
-        setAuth(data.user, data.accessToken);
-        console.log('[Auth] ✓ Session restored for:', data.user.email || data.user.name);
-
-      } catch (err) {
-        // Network error, server sleeping, offline
-        console.warn('[Auth] Restore failed:', err.message);
+      } else if (result.type === 'auth_failure') {
+        // ❌ 401 — token expired, user must log in
+        console.log('[Auth] Token expired → login.');
         setUnauthenticated();
+
+      } else {
+        // ⚠️ Network error or backend bug — DON'T redirect to login
+        console.warn(`[Auth] ${result.type}:`, result.message || result.error?.message);
+        setServerUnreachable();
       }
     };
 
-    restoreSession();
+    restore();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return children;
 }
 
-// ── Loading splash shown while session is restoring ──
+// ── Loading splash ──
 function VaultSplash() {
   return (
     <div className="h-screen flex flex-col items-center justify-center gap-5" style={{ background: '#05060F' }}>
@@ -137,29 +168,103 @@ function VaultSplash() {
   );
 }
 
+// ── Reconnecting screen — server sleeping / backend bug ──
+// Polls /health every 5s and auto-reloads when server wakes up
+function ReconnectingScreen() {
+  const [dots, setDots] = useState('.');
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const dI = setInterval(() => setDots(d => d.length >= 3 ? '.' : d + '.'), 500);
+    const tI = setInterval(() => setElapsed(e => e + 1), 1000);
+
+    // Auto-poll /health — reload when server is back
+    const hI = setInterval(async () => {
+      try {
+        const res = await fetch(`${BASE}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          clearInterval(hI);
+          authBootstrapped = false;           // allow re-bootstrap
+          window.location.reload();
+        }
+      } catch { /* still sleeping */ }
+    }, 5000);
+
+    return () => { clearInterval(dI); clearInterval(tI); clearInterval(hI); };
+  }, []);
+
+  const handleRetry = () => {
+    authBootstrapped = false;
+    window.location.reload();
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      background: '#05060F', gap: '20px', padding: '20px',
+    }}>
+      <div style={{
+        width: 52, height: 52, borderRadius: 14,
+        background: 'linear-gradient(145deg,#F7B733,#E08A00)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 0 32px rgba(245,166,35,0.3)',
+        animation: 'vaultPulse 2s ease-in-out infinite',
+      }}>
+        <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 22 }}>V</span>
+      </div>
+      <p style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: 18, color: '#EAEDF5', margin: 0 }}>VAULT</p>
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ fontFamily: 'Inter', fontSize: 14, color: '#9295A8', margin: '0 0 6px' }}>
+          Connecting to server{dots}
+        </p>
+        <p style={{ fontFamily: 'Inter', fontSize: 12, color: '#4A4E65', margin: 0, maxWidth: 280 }}>
+          {elapsed < 15
+            ? 'Server is waking up. This takes 20–40 seconds on first load.'
+            : 'Taking longer than usual. Check your internet connection.'}
+        </p>
+      </div>
+      {elapsed >= 20 && (
+        <button
+          onClick={handleRetry}
+          style={{
+            padding: '10px 24px', borderRadius: 10,
+            background: 'linear-gradient(135deg,rgba(245,166,35,0.16),rgba(245,166,35,0.06))',
+            border: '0.5px solid rgba(245,166,35,0.4)',
+            color: '#F5A623', fontFamily: 'Inter', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', marginTop: 8,
+          }}>
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProtectedLayout() {
-  const { isAuthenticated, isLoading, isLoggingOut } = useAuthStore();
+  const { isAuthenticated, isLoading, isLoggingOut, serverUnreachable } = useAuthStore();
   const { sidebarCollapsed, addTransactionOpen, setAddTransactionOpen } = useUIStore();
   const isMobile = useIsMobile();
   const isTablet = useIsTablet();
 
-  // Real-time updates — connect socket for entire authenticated session
+  // Real-time updates
   useSocket();
 
-  // Still restoring session — show splash (prevents flash of login + 401 cascade)
+  // Still restoring — show splash
   if (isLoading || isLoggingOut) return <VaultSplash />;
 
+  // Server unreachable — show reconnecting, DON'T redirect to login
+  if (serverUnreachable) return <ReconnectingScreen />;
+
+  // Genuine auth failure — redirect to login
   if (!isAuthenticated) return <Navigate to="/login" replace />;
 
   const location = useLocation();
   const pageTransition = usePageTransition();
-
-  // Sidebar width: mobile=0, tablet=64 (icon-only), desktop=64 or 240
   const marginLeft = isMobile ? 0 : isTablet ? 64 : (sidebarCollapsed ? 64 : 240);
 
   return (
     <>
-      {/* Ambient background */}
       <div className="app-bg" aria-hidden="true"><div className="app-bg-blob3" /></div>
 
       <div className="flex min-h-screen" style={{ position: 'relative', zIndex: 1 }}>
@@ -175,10 +280,7 @@ function ProtectedLayout() {
                 <CardSkeleton /><CardSkeleton /><CardSkeleton />
               </div>
             }>
-              <motion.div
-                key={location.pathname}
-                {...pageTransition}
-              >
+              <motion.div key={location.pathname} {...pageTransition}>
                 <Outlet />
               </motion.div>
             </Suspense>
@@ -193,7 +295,6 @@ function ProtectedLayout() {
 
 function PublicRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuthStore();
-  // While loading, don't redirect — wait for session restore
   if (isLoading) return <VaultSplash />;
   return isAuthenticated ? <Navigate to="/dashboard" replace /> : children;
 }
