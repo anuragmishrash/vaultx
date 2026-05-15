@@ -1,11 +1,12 @@
-import { lazy, Suspense, useEffect, useState, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useAuthStore, useUIStore } from './store/authStore';
 import { useIsMobile, useIsTablet } from './hooks/useMediaQuery';
 import { useSocket } from './hooks/useSocket';
+import { useServerReconnect } from './hooks/useServerReconnect';
 import Sidebar from './components/layout/Sidebar';
 import MobileNav from './components/layout/MobileNav';
 import Navbar from './components/layout/Navbar';
@@ -13,23 +14,23 @@ import AddTransactionModal from './components/features/AddTransactionModal';
 import { CardSkeleton } from './components/ui/Skeleton';
 import { usePageTransition } from './utils/animations';
 
-const Landing = lazy(() => import('./pages/Landing'));
-const Login = lazy(() => import('./pages/Auth/Login'));
-const Register = lazy(() => import('./pages/Auth/Register'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Landing      = lazy(() => import('./pages/Landing'));
+const Login        = lazy(() => import('./pages/Auth/Login'));
+const Register     = lazy(() => import('./pages/Auth/Register'));
+const Dashboard    = lazy(() => import('./pages/Dashboard'));
 const Transactions = lazy(() => import('./pages/Transactions'));
-const RegretTracker = lazy(() => import('./pages/RegretTracker'));
-const MoodSpend = lazy(() => import('./pages/MoodSpend'));
-const GhostMoney = lazy(() => import('./pages/GhostMoney'));
-const FutureSelf = lazy(() => import('./pages/FutureSelf'));
-const SpendDNA = lazy(() => import('./pages/SpendDNA'));
-const ZeroDay = lazy(() => import('./pages/ZeroDay'));
+const RegretTracker  = lazy(() => import('./pages/RegretTracker'));
+const MoodSpend    = lazy(() => import('./pages/MoodSpend'));
+const GhostMoney   = lazy(() => import('./pages/GhostMoney'));
+const FutureSelf   = lazy(() => import('./pages/FutureSelf'));
+const SpendDNA     = lazy(() => import('./pages/SpendDNA'));
+const ZeroDay      = lazy(() => import('./pages/ZeroDay'));
 const GuiltyFreeZone = lazy(() => import('./pages/GuiltyFreeZone'));
-const Analytics = lazy(() => import('./pages/Analytics'));
-const Commitments = lazy(() => import('./pages/Commitments'));
-const Settings = lazy(() => import('./pages/Settings'));
-const MyMoney = lazy(() => import('./pages/MyMoney'));
-const CashTracker = lazy(() => import('./pages/CashTracker'));
+const Analytics    = lazy(() => import('./pages/Analytics'));
+const Commitments  = lazy(() => import('./pages/Commitments'));
+const Settings     = lazy(() => import('./pages/Settings'));
+const MyMoney      = lazy(() => import('./pages/MyMoney'));
+const CashTracker  = lazy(() => import('./pages/CashTracker'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,64 +51,45 @@ const queryClient = new QueryClient({
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// ── Module-level flag — survives React StrictMode double-mount ──
+// ── Module-level flag — prevents double-run in React StrictMode ──
 let authBootstrapped = false;
 
-// ── Attempt refresh-token with retries for network errors ──
-async function attemptRefresh(maxAttempts = 3) {
-  let lastError = null;
+// ── Single refresh-token call with configurable timeout ──────────────────────
+async function callRefreshToken(timeoutMs = 50000) {
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch(`${BASE}/auth/refresh-token`, {
+      method:      'POST',
+      credentials: 'include',
+      headers:     { 'Content-Type': 'application/json' },
+      signal:      controller.signal,
+    });
+    clearTimeout(tid);
 
-      const res = await fetch(`${BASE}/auth/refresh-token`, {
-        method:      'POST',
-        credentials: 'include',
-        headers:     { 'Content-Type': 'application/json' },
-        signal:      controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      // 401 = genuine auth failure — don't retry
-      if (res.status === 401) {
-        return { type: 'auth_failure' };
-      }
-
-      // 200 = success — parse and validate
-      if (res.status === 200) {
-        const data = await res.json();
-        if (data.accessToken && data.user) {
-          return { type: 'success', data };
-        }
-        return { type: 'backend_bug', message: 'Response missing accessToken or user' };
-      }
-
-      // 404, 204, etc. = backend bug — don't retry
-      if (res.status === 404 || res.status === 204) {
-        return { type: 'backend_bug', message: `Endpoint returned ${res.status}` };
-      }
-
-      // 500 etc. — retry
-      lastError = new Error(`HTTP ${res.status}`);
-
-    } catch (err) {
-      lastError = err;
-      if (attempt < maxAttempts) {
-        const waitMs = attempt * 2000;
-        console.log(`[Auth] Attempt ${attempt} failed (${err.message}). Retrying in ${waitMs}ms…`);
-        await new Promise(r => setTimeout(r, waitMs));
-      }
+    if (res.status === 401) return { type: 'expired' };
+    if (res.status === 200) {
+      const data = await res.json();
+      if (data?.accessToken && data?.user) return { type: 'ok', data };
+      return { type: 'backend_bug', detail: 'Missing accessToken or user in response' };
     }
+    return { type: 'server_error', status: res.status };
+  } catch (err) {
+    if (err.name === 'AbortError') return { type: 'timeout' };
+    return { type: 'network_error', message: err.message };
   }
-
-  return { type: 'network_error', error: lastError };
 }
 
-// ── AuthProvider — restores session on page load ──
+// ── AuthProvider ─────────────────────────────────────────────────────────────
+// Two paths:
+//   A) Cached session exists → show app immediately, verify in background (50s timeout)
+//   B) No cache             → wait for server (50s timeout), show loading screen
 function AuthProvider({ children }) {
-  const { setAuth, setUnauthenticated, setServerUnreachable } = useAuthStore();
+  const {
+    setAuthenticated, setUnauthenticated, setServerUnreachable,
+    sessionFromCache, user, accessToken,
+  } = useAuthStore();
   const initRef = useRef(false);
 
   useEffect(() => {
@@ -116,23 +98,44 @@ function AuthProvider({ children }) {
     authBootstrapped = true;
 
     const restore = async () => {
-      const result = await attemptRefresh(3);
+      // ── PATH A: Cached session ────────────────────────────────────────────
+      if (sessionFromCache && user && accessToken) {
+        console.log('[Auth] Cached session found — app visible immediately. Verifying in background…');
+        // UI is already unblocked (isLoading=false, isAuthenticated=true from store init)
 
-      if (result.type === 'success') {
-        // ✅ Session restored
-        window.__vaultAccessToken = result.data.accessToken;
-        try { localStorage.setItem('vault_access_token', result.data.accessToken); } catch {}
-        setAuth(result.data.user, result.data.accessToken);
-        console.log('[Auth] ✓ Session restored for:', result.data.user.email || result.data.user.name);
+        const result = await callRefreshToken(50000);
 
-      } else if (result.type === 'auth_failure') {
-        // ❌ 401 — token expired, user must log in
-        console.log('[Auth] Token expired → login.');
+        if (result.type === 'ok') {
+          setAuthenticated(result.data.user, result.data.accessToken);
+          console.log('[Auth] ✓ Background verify complete — fresh token stored.');
+          // Invalidate all queries so they refetch with the new token
+          queryClient.invalidateQueries();
+        } else if (result.type === 'expired') {
+          console.log('[Auth] Cached session expired (401). Redirecting to login.');
+          setUnauthenticated();
+          // Navigate happens in ProtectedLayout when isAuthenticated → false
+        } else {
+          // Server sleeping or network issue — keep using cached session
+          // useServerReconnect will poll every 8s in the background
+          console.warn(`[Auth] Background verify failed (${result.type}) — using cached data. Reconnect polling active.`);
+          setServerUnreachable();
+        }
+        return;
+      }
+
+      // ── PATH B: No cache — must wait for server ───────────────────────────
+      console.log('[Auth] No cached session — waiting for server (up to 50s)…');
+      const result = await callRefreshToken(50000);
+
+      if (result.type === 'ok') {
+        setAuthenticated(result.data.user, result.data.accessToken);
+        console.log('[Auth] ✓ Fresh session established.');
+      } else if (result.type === 'expired') {
         setUnauthenticated();
-
+        // ProtectedLayout handles redirect when !isAuthenticated
       } else {
-        // ⚠️ Network error or backend bug — DON'T redirect to login
-        console.warn(`[Auth] ${result.type}:`, result.message || result.error?.message);
+        // Server couldn't be reached — show reconnecting screen
+        console.warn(`[Auth] Server unreachable (${result.type}). Showing reconnect UI.`);
         setServerUnreachable();
       }
     };
@@ -143,10 +146,11 @@ function AuthProvider({ children }) {
   return children;
 }
 
-// ── Loading splash ──
+// ── Screens ──────────────────────────────────────────────────────────────────
 function VaultSplash() {
   return (
-    <div className="h-screen flex flex-col items-center justify-center gap-5" style={{ background: '#05060F' }}>
+    <div className="h-screen flex flex-col items-center justify-center gap-5"
+      style={{ background: '#05060F' }}>
       <div style={{
         width: 52, height: 52, borderRadius: 14,
         background: 'linear-gradient(145deg,#F7B733,#E08A00)',
@@ -168,105 +172,97 @@ function VaultSplash() {
   );
 }
 
-// ── Reconnecting screen — server sleeping / backend bug ──
-// Polls /health every 5s and auto-reloads when server wakes up
 function ReconnectingScreen() {
-  const [dots, setDots] = useState('.');
+  const [dots,    setDots]    = useState('.');
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    const dI = setInterval(() => setDots(d => d.length >= 3 ? '.' : d + '.'), 500);
+    const dI = setInterval(() => setDots(d => d.length >= 3 ? '.' : d + '.'), 600);
     const tI = setInterval(() => setElapsed(e => e + 1), 1000);
-
-    // Auto-poll /health — reload when server is back
-    const hI = setInterval(async () => {
-      try {
-        const res = await fetch(`${BASE}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) });
-        if (res.ok) {
-          clearInterval(hI);
-          authBootstrapped = false;           // allow re-bootstrap
-          window.location.reload();
-        }
-      } catch { /* still sleeping */ }
-    }, 5000);
-
-    return () => { clearInterval(dI); clearInterval(tI); clearInterval(hI); };
+    return () => { clearInterval(dI); clearInterval(tI); };
   }, []);
-
-  const handleRetry = () => {
-    authBootstrapped = false;
-    window.location.reload();
-  };
 
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
-      background: '#05060F', gap: '20px', padding: '20px',
+      background: '#05060F', gap: '20px', padding: '24px',
     }}>
       <div style={{
-        width: 52, height: 52, borderRadius: 14,
+        width: 54, height: 54, borderRadius: 15,
         background: 'linear-gradient(145deg,#F7B733,#E08A00)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: '0 0 32px rgba(245,166,35,0.3)',
-        animation: 'vaultPulse 2s ease-in-out infinite',
+        animation: 'vPulse 2s ease-in-out infinite',
       }}>
-        <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 22 }}>V</span>
+        <span style={{ fontFamily: 'Outfit', fontWeight: 800, color: '#1C0E00', fontSize: 23 }}>V</span>
       </div>
       <p style={{ fontFamily: 'Outfit', fontWeight: 700, fontSize: 18, color: '#EAEDF5', margin: 0 }}>VAULT</p>
-      <div style={{ textAlign: 'center' }}>
-        <p style={{ fontFamily: 'Inter', fontSize: 14, color: '#9295A8', margin: '0 0 6px' }}>
+      <div style={{ textAlign: 'center', maxWidth: 300 }}>
+        <p style={{ fontFamily: 'Inter', fontSize: 14, color: '#9295A8', margin: '0 0 8px' }}>
           Connecting to server{dots}
         </p>
-        <p style={{ fontFamily: 'Inter', fontSize: 12, color: '#4A4E65', margin: 0, maxWidth: 280 }}>
-          {elapsed < 15
-            ? 'Server is waking up. This takes 20–40 seconds on first load.'
-            : 'Taking longer than usual. Check your internet connection.'}
+        <p style={{ fontFamily: 'Inter', fontSize: 12, color: '#4A4E65', margin: 0, lineHeight: 1.6 }}>
+          {elapsed < 20
+            ? 'Our server wakes up on first use. This takes about 30 seconds.'
+            : elapsed < 50
+            ? 'Almost there… server is starting up.'
+            : 'Taking longer than usual. Check your connection.'}
         </p>
       </div>
-      {elapsed >= 20 && (
+      {elapsed >= 40 && (
         <button
-          onClick={handleRetry}
+          onClick={() => { authBootstrapped = false; window.location.reload(); }}
           style={{
-            padding: '10px 24px', borderRadius: 10,
-            background: 'linear-gradient(135deg,rgba(245,166,35,0.16),rgba(245,166,35,0.06))',
+            padding: '11px 28px', borderRadius: 10,
+            background: 'linear-gradient(135deg,rgba(245,166,35,0.18),rgba(245,166,35,0.07))',
             border: '0.5px solid rgba(245,166,35,0.4)',
-            color: '#F5A623', fontFamily: 'Inter', fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', marginTop: 8,
+            color: '#F5A623', fontFamily: 'Inter', fontSize: 14, fontWeight: 600, cursor: 'pointer',
           }}>
           Try again
         </button>
       )}
+      <style>{`
+        @keyframes vPulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.06); opacity:0.8; } }
+      `}</style>
     </div>
   );
 }
 
+// ── ProtectedLayout ───────────────────────────────────────────────────────────
 function ProtectedLayout() {
-  const { isAuthenticated, isLoading, isLoggingOut, serverUnreachable } = useAuthStore();
+  const {
+    isAuthenticated, isLoading, isLoggingOut, serverUnreachable,
+  } = useAuthStore();
   const { sidebarCollapsed, addTransactionOpen, setAddTransactionOpen } = useUIStore();
   const isMobile = useIsMobile();
   const isTablet = useIsTablet();
-
-  // Real-time updates
-  useSocket();
-
-  // Still restoring — show splash
-  if (isLoading || isLoggingOut) return <VaultSplash />;
-
-  // Server unreachable — show reconnecting, DON'T redirect to login
-  if (serverUnreachable) return <ReconnectingScreen />;
-
-  // Genuine auth failure — redirect to login
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-
   const location = useLocation();
   const pageTransition = usePageTransition();
+
+  // Real-time sync (only connects when authenticated)
+  useSocket();
+
+  // Background reconnect polling when server was unreachable
+  useServerReconnect();
+
+  // Still restoring (no cache case)
+  if (isLoading || isLoggingOut) return <VaultSplash />;
+
+  // Server unreachable AND no cached session → reconnecting screen
+  if (serverUnreachable && !isAuthenticated) return <ReconnectingScreen />;
+
+  // Genuine auth failure (401) → login
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  // serverUnreachable + isAuthenticated → cached session, show app normally
+  // useServerReconnect polls in background, invalidates queries on reconnect
+
   const marginLeft = isMobile ? 0 : isTablet ? 64 : (sidebarCollapsed ? 64 : 240);
 
   return (
     <>
       <div className="app-bg" aria-hidden="true"><div className="app-bg-blob3" /></div>
-
       <div className="flex min-h-screen" style={{ position: 'relative', zIndex: 1 }}>
         <Sidebar />
         <Navbar />
@@ -287,7 +283,10 @@ function ProtectedLayout() {
           </div>
         </main>
         <MobileNav />
-        <AddTransactionModal isOpen={addTransactionOpen} onClose={() => setAddTransactionOpen(false)} />
+        <AddTransactionModal
+          isOpen={addTransactionOpen}
+          onClose={() => setAddTransactionOpen(false)}
+        />
       </div>
     </>
   );
@@ -309,29 +308,29 @@ export default function App() {
             toastOptions={{
               className: 'toast-custom',
               success: { iconTheme: { primary: '#00C9A7', secondary: '#05060F' } },
-              error: { iconTheme: { primary: '#FF5C5C', secondary: '#05060F' } },
+              error:   { iconTheme: { primary: '#FF5C5C', secondary: '#05060F' } },
             }}
           />
           <Suspense fallback={<VaultSplash />}>
             <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+              <Route path="/"         element={<Landing />} />
+              <Route path="/login"    element={<PublicRoute><Login /></PublicRoute>} />
               <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
               <Route element={<ProtectedLayout />}>
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/transactions" element={<Transactions />} />
-                <Route path="/commitments" element={<Commitments />} />
+                <Route path="/dashboard"     element={<Dashboard />} />
+                <Route path="/transactions"  element={<Transactions />} />
+                <Route path="/commitments"   element={<Commitments />} />
                 <Route path="/regret-tracker" element={<RegretTracker />} />
-                <Route path="/mood-spend" element={<MoodSpend />} />
-                <Route path="/ghost-money" element={<GhostMoney />} />
-                <Route path="/future-self" element={<FutureSelf />} />
-                <Route path="/spend-dna" element={<SpendDNA />} />
-                <Route path="/zero-day" element={<ZeroDay />} />
-                <Route path="/guilt-free" element={<GuiltyFreeZone />} />
-                <Route path="/analytics" element={<Analytics />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/my-money" element={<MyMoney />} />
-                <Route path="/cash-tracker" element={<CashTracker />} />
+                <Route path="/mood-spend"    element={<MoodSpend />} />
+                <Route path="/ghost-money"   element={<GhostMoney />} />
+                <Route path="/future-self"   element={<FutureSelf />} />
+                <Route path="/spend-dna"     element={<SpendDNA />} />
+                <Route path="/zero-day"      element={<ZeroDay />} />
+                <Route path="/guilt-free"    element={<GuiltyFreeZone />} />
+                <Route path="/analytics"     element={<Analytics />} />
+                <Route path="/settings"      element={<Settings />} />
+                <Route path="/my-money"      element={<MyMoney />} />
+                <Route path="/cash-tracker"  element={<CashTracker />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
