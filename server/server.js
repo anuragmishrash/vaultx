@@ -110,17 +110,22 @@ httpServer.listen(PORT, () => {
   console.log(`🚀 VAULT Server running on port ${PORT}`);
 
   // ── Keep-alive ping for Render free tier (prevents 30s cold-start sleep) ──
-  if (process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL) {
+  const selfUrl = process.env.RENDER_EXTERNAL_URL || process.env.SERVER_URL || process.env.SELF_PING_URL;
+  if (selfUrl) {
     const https = require('https');
-    const pingUrl = `${process.env.RENDER_EXTERNAL_URL}/api/health`;
+    const http = require('http');
+    const pingUrl = selfUrl.startsWith('http') ? selfUrl : `https://${selfUrl}`;
+    const healthUrl = pingUrl.endsWith('/api/health') ? pingUrl : `${pingUrl.replace(/\/$/, '')}/api/health`;
+    
     setInterval(() => {
-      https.get(pingUrl, (res) => {
+      const client = healthUrl.startsWith('https') ? https : http;
+      client.get(healthUrl, (res) => {
         console.log(`[KeepAlive] Ping → ${res.statusCode}`);
       }).on('error', (err) => {
         console.warn('[KeepAlive] Ping failed:', err.message);
       });
     }, 14 * 60 * 1000); // every 14 minutes
-    console.log('[KeepAlive] Started — server will stay awake on Render.');
+    console.log(`[KeepAlive] Started — pinging ${healthUrl} every 14 minutes.`);
   }
   // ─────────────────────────────────────────────────────────────────────────
 });

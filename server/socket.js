@@ -46,7 +46,17 @@ function initSocket(httpServer) {
     }
   });
 
+  if (typeof io.setMaxListeners === 'function') {
+    io.setMaxListeners(20);
+  }
+  if (io.sockets && typeof io.sockets.setMaxListeners === 'function') {
+    io.sockets.setMaxListeners(20);
+  }
+
   io.on('connection', (socket) => {
+    if (typeof socket.setMaxListeners === 'function') {
+      socket.setMaxListeners(20);
+    }
     // Each user gets their own room (all devices share it)
     socket.join(`user:${socket.userId}`);
     console.log(`[Socket] ✅ User ${socket.userId} connected (${socket.id})`);

@@ -131,7 +131,10 @@ export const useAuthStore = create((set, get) => ({
     syncAxiosToken(null);
 
     try {
-      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      let BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      if (!BASE.endsWith('/api')) {
+        BASE = BASE.replace(/\/$/, '') + '/api';
+      }
       await fetch(`${BASE}/auth/logout`, {
         method: 'POST',
         credentials: 'include',

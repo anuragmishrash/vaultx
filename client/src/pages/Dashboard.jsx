@@ -15,7 +15,7 @@ import { formatINR, formatCompact } from '../utils/formatCurrency';
 import { getCategoryMeta, CHART_COLORS } from '../constants/categories';
 import { chartDefaults } from '../utils/chartTheme';
 import { format } from 'date-fns';
-import { TrendingUp, TrendingDown, Flame, AlertTriangle, ChevronRight, ChevronDown, Plus, Sun, Cloud, CloudRain, Landmark, Banknote, Wallet, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, Flame, AlertTriangle, ChevronRight, ChevronDown, Plus, Sun, Cloud, CloudRain, Landmark, Banknote, Wallet, X, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import toast from 'react-hot-toast';
@@ -221,18 +221,32 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export default function Dashboard() {
-  const { user } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
   const { setAddTransactionOpen } = useUIStore();
   const qc = useQueryClient();
   const isMobile = useIsMobile();
 
   const [tfmTab, setTfmTab] = useState('this_month');
+  const [showRetry, setShowRetry] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard', tfmTab],
     queryFn: () => analyticsAPI.getDashboard(tfmTab).then(r => r.data),
     staleTime: 30 * 1000,
+    enabled: isAuthenticated,
   });
+
+  useEffect(() => {
+    let timer;
+    if (isLoading && isAuthenticated) {
+      timer = setTimeout(() => {
+        setShowRetry(true);
+      }, 8000); // 8s timeout
+    } else {
+      setShowRetry(false);
+    }
+    return () => clearTimeout(timer);
+  }, [isLoading, isAuthenticated]);
 
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
   const [incomeForm, setIncomeForm] = useState({ amount: '', date: format(new Date(), 'yyyy-MM-dd'), note: '' });
@@ -241,7 +255,7 @@ export default function Dashboard() {
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
   // historicalWf kept for sparkline only — KPI values now come from API
-  const { data: historicalWf } = useQuery({
+  const { data: historicalWf, refetch: refetchHistoricalWf } = useQuery({
     queryKey: ['historical-waterfall', tfmTab],
     queryFn: async () => {
       const { analyticsAPI } = await import('../api');
@@ -258,7 +272,7 @@ export default function Dashboard() {
         numberOfMonths: res.numberOfMonths,
       };
     },
-    enabled: true,
+    enabled: isAuthenticated,
   });
 
 
@@ -266,6 +280,7 @@ export default function Dashboard() {
   const { data: incomeData, refetch: refetchIncome } = useQuery({
     queryKey: ['income', currentMonthStr],
     queryFn: () => incomeAPI.get(currentMonthStr).then(r => r.data),
+    enabled: isAuthenticated,
   });
 
   const logIncomeMutation = useMutation({
@@ -287,7 +302,7 @@ export default function Dashboard() {
     logIncomeMutation.mutate({ amount: amt, date: incomeForm.date, note: incomeForm.note });
   };
 
-  const { data: sparklineData } = useQuery({
+  const { data: sparklineData, refetch: refetchSparkline } = useQuery({
     queryKey: ['tfm-sparkline', tfmTab],
     queryFn: async () => {
       const { commitmentsAPI } = await import('../api');
@@ -336,7 +351,7 @@ export default function Dashboard() {
     },
   });
 
-  const { data: chartDataRaw, isLoading: isChartLoading } = useQuery({
+  const { data: chartDataRaw, isLoading: isChartLoading, refetch: refetchChart } = useQuery({
     queryKey: ['dashboard-charts-txns', tfmTab],
     queryFn: async () => {
       const { transactionsAPI } = await import('../api');
@@ -364,7 +379,8 @@ export default function Dashboard() {
         limit: 10000
       });
       return res.data.data || res.data.transactions || [];
-    }
+    },
+    enabled: isAuthenticated,
   });
 
   const processedCharts = useMemo(() => {
@@ -466,9 +482,10 @@ export default function Dashboard() {
 
   const displayWf = historicalWf;
 
-  const { data: envData } = useQuery({
+  const { data: envData, refetch: refetchEnvData } = useQuery({
     queryKey: ['cash-envelope', now.getMonth() + 1, now.getFullYear()],
     queryFn: () => import('../api').then(m => m.cashAPI.getEnvelope({ month: now.getMonth() + 1, year: now.getFullYear() }).then(r => r.data)),
+    enabled: isAuthenticated,
   });
 
   const rateMutation = useMutation({
@@ -549,6 +566,16 @@ export default function Dashboard() {
     forecastOvershoot <= 500   ? "Approaching budget — watch your pace." :
       `On track to overshoot by ${formatINR(Math.abs(forecastOvershoot))}`;
 
+  const handleRetry = () => {
+    setShowRetry(false);
+    refetch();
+    refetchHistoricalWf();
+    refetchIncome();
+    refetchSparkline();
+    refetchChart();
+    refetchEnvData();
+  };
+
   return (
     <>
     <MobilePage title="Dashboard">
@@ -572,8 +599,34 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* KPI Strip */}
-        {isLoading ? (
+        {/* Main Content Area */}
+        {isError || showRetry ? (
+          <div className="flex flex-col items-center justify-center p-12 bg-vault-card border border-vault-border rounded-vault-lg text-center space-y-4 my-8" style={{ background: '#0D0E1C', borderColor: 'rgba(255,255,255,0.06)' }}>
+            <div style={{
+              width: 54, height: 54, borderRadius: 15,
+              background: 'rgba(255, 92, 92, 0.1)',
+              border: '1px solid rgba(255, 92, 92, 0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#FF5C5C', marginBottom: '8px'
+            }}>
+              <CloudRain size={28} />
+            </div>
+            <h2 className="font-display font-semibold text-lg text-vault-text-primary">
+              {isError ? 'Unable to load dashboard' : 'Connection is taking longer than usual'}
+            </h2>
+            <p className="text-vault-text-secondary text-sm max-w-md">
+              {isError 
+                ? 'We encountered an error fetching your financial data. The server might be temporarily offline.' 
+                : 'Our server runs on a free instance which spins down after inactivity. It should wake up in a few seconds.'}
+            </p>
+            <button
+              onClick={handleRetry}
+              className="btn-amber px-6 py-2.5 rounded-vault-md text-sm font-semibold flex items-center gap-2 mt-2"
+            >
+              <RefreshCw size={16} /> Retry Connection
+            </button>
+          </div>
+        ) : isLoading ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => <CardSkeleton key={i} />)}
           </div>

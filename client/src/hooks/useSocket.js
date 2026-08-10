@@ -56,46 +56,52 @@ export function useSocket() {
         reconnectionDelayMax: 10000,
         timeout:            20000,
       });
+
+      if (typeof socketInstance.setMaxListeners === 'function') {
+        socketInstance.setMaxListeners(20);
+      }
     }
 
     // Prevent attaching duplicate listeners across re-renders
     if (listenersRef.current) return;
     listenersRef.current = true;
 
-    socketInstance.on('connect', () => {
+    const handleConnect = () => {
       console.log('[Socket] ✅ Connected:', socketInstance.id);
-    });
+    };
 
-    socketInstance.on('disconnect', (reason) => {
+    const handleDisconnect = (reason) => {
       console.log('[Socket] Disconnected:', reason);
       if (reason === 'io server disconnect') {
         // Server disconnected us explicitly — try to reconnect
         socketInstance.connect();
       }
-    });
+    };
 
-    socketInstance.on('connect_error', (err) => {
+    const handleConnectError = (err) => {
       // Non-fatal — app continues to work, just no real-time updates
       console.warn('[Socket] Connection error (real-time disabled):', err.message);
-    });
+    };
 
-    // ── THE ONLY EVENT WE LISTEN FOR ────────────────────────────────────────
-    // Server emits 'data:changed' with { resource, action } after every mutation.
-    // We look up which React Query keys to invalidate for that resource.
-    socketInstance.on('data:changed', ({ resource, action }) => {
+    const handleDataChanged = ({ resource, action }) => {
       console.log(`[Socket] 🔄 data:changed → ${resource} (${action})`);
 
       const keys = RESOURCE_KEYS[resource] || [];
       keys.forEach(key => queryClient.invalidateQueries({ queryKey: key }));
-    });
+    };
+
+    socketInstance.on('connect', handleConnect);
+    socketInstance.on('disconnect', handleDisconnect);
+    socketInstance.on('connect_error', handleConnectError);
+    socketInstance.on('data:changed', handleDataChanged);
 
     return () => {
       // Remove listeners on cleanup but KEEP the socket alive across navigation
       if (socketInstance) {
-        socketInstance.off('data:changed');
-        socketInstance.off('connect');
-        socketInstance.off('disconnect');
-        socketInstance.off('connect_error');
+        socketInstance.off('connect', handleConnect);
+        socketInstance.off('disconnect', handleDisconnect);
+        socketInstance.off('connect_error', handleConnectError);
+        socketInstance.off('data:changed', handleDataChanged);
       }
       listenersRef.current = false;
     };
