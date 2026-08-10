@@ -221,7 +221,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export default function Dashboard() {
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, sessionFromCache } = useAuthStore();
   const { setAddTransactionOpen } = useUIStore();
   const qc = useQueryClient();
   const isMobile = useIsMobile();
@@ -233,12 +233,12 @@ export default function Dashboard() {
     queryKey: ['dashboard', tfmTab],
     queryFn: () => analyticsAPI.getDashboard(tfmTab).then(r => r.data),
     staleTime: 30 * 1000,
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !sessionFromCache,
   });
 
   useEffect(() => {
     let timer;
-    if (isLoading && isAuthenticated) {
+    if (isLoading && isAuthenticated && !sessionFromCache) {
       timer = setTimeout(() => {
         setShowRetry(true);
       }, 8000); // 8s timeout
@@ -246,7 +246,7 @@ export default function Dashboard() {
       setShowRetry(false);
     }
     return () => clearTimeout(timer);
-  }, [isLoading, isAuthenticated]);
+  }, [isLoading, isAuthenticated, sessionFromCache]);
 
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
   const [incomeForm, setIncomeForm] = useState({ amount: '', date: format(new Date(), 'yyyy-MM-dd'), note: '' });
@@ -272,7 +272,7 @@ export default function Dashboard() {
         numberOfMonths: res.numberOfMonths,
       };
     },
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !sessionFromCache,
   });
 
 
@@ -280,7 +280,7 @@ export default function Dashboard() {
   const { data: incomeData, refetch: refetchIncome } = useQuery({
     queryKey: ['income', currentMonthStr],
     queryFn: () => incomeAPI.get(currentMonthStr).then(r => r.data),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !sessionFromCache,
   });
 
   const logIncomeMutation = useMutation({
@@ -349,6 +349,7 @@ export default function Dashboard() {
         return dailyWf;
       }
     },
+    enabled: isAuthenticated && !sessionFromCache,
   });
 
   const { data: chartDataRaw, isLoading: isChartLoading, refetch: refetchChart } = useQuery({
@@ -380,7 +381,7 @@ export default function Dashboard() {
       });
       return res.data.data || res.data.transactions || [];
     },
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !sessionFromCache,
   });
 
   const processedCharts = useMemo(() => {
@@ -485,7 +486,7 @@ export default function Dashboard() {
   const { data: envData, refetch: refetchEnvData } = useQuery({
     queryKey: ['cash-envelope', now.getMonth() + 1, now.getFullYear()],
     queryFn: () => import('../api').then(m => m.cashAPI.getEnvelope({ month: now.getMonth() + 1, year: now.getFullYear() }).then(r => r.data)),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !sessionFromCache,
   });
 
   const rateMutation = useMutation({
@@ -626,7 +627,7 @@ export default function Dashboard() {
               <RefreshCw size={16} /> Retry Connection
             </button>
           </div>
-        ) : isLoading ? (
+        ) : (!data) ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => <CardSkeleton key={i} />)}
           </div>

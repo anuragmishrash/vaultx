@@ -85,16 +85,24 @@ api.interceptors.response.use(
       isRefreshing    = true;
 
       try {
-        // Use native fetch to avoid interceptor re-entry
-        const res = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
-          method:      'POST',
-          credentials: 'include',
-          headers:     { 'Content-Type': 'application/json' },
-        });
+        let data;
+        if (window.__vaultRefreshPromise) {
+          console.log('[API] Interceptor awaiting active background refresh promise...');
+          const result = await window.__vaultRefreshPromise;
+          if (result.type !== 'ok') throw new Error(`Background refresh failed: ${result.type}`);
+          data = result.data;
+        } else {
+          // Use native fetch to avoid interceptor re-entry
+          const res = await fetch(`${API_BASE_URL}/auth/refresh-token`, {
+            method:      'POST',
+            credentials: 'include',
+            headers:     { 'Content-Type': 'application/json' },
+          });
 
-        if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
+          if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
+          data = await res.json();
+        }
 
-        const data = await res.json();
         if (!data.accessToken) throw new Error('No token in response');
 
         const newToken = data.accessToken;

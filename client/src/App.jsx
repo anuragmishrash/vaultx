@@ -58,29 +58,47 @@ if (!BASE.endsWith('/api')) {
 let authBootstrapped = false;
 
 // ── Single refresh-token call with configurable timeout ──────────────────────
+let activeRefreshPromise = null;
+
 async function callRefreshToken(timeoutMs = 50000) {
-  try {
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), timeoutMs);
+  if (activeRefreshPromise) {
+    return activeRefreshPromise;
+  }
 
-    const res = await fetch(`${BASE}/auth/refresh-token`, {
-      method:      'POST',
-      credentials: 'include',
-      headers:     { 'Content-Type': 'application/json' },
-      signal:      controller.signal,
-    });
-    clearTimeout(tid);
+  const run = async () => {
+    try {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (res.status === 401) return { type: 'expired' };
-    if (res.status === 200) {
-      const data = await res.json();
-      if (data?.accessToken && data?.user) return { type: 'ok', data };
-      return { type: 'backend_bug', detail: 'Missing accessToken or user in response' };
+      const res = await fetch(`${BASE}/auth/refresh-token`, {
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        signal:      controller.signal,
+      });
+      clearTimeout(tid);
+
+      if (res.status === 401) return { type: 'expired' };
+      if (res.status === 200) {
+        const data = await res.json();
+        if (data?.accessToken && data?.user) return { type: 'ok', data };
+        return { type: 'backend_bug', detail: 'Missing accessToken or user in response' };
+      }
+      return { type: 'server_error', status: res.status };
+    } catch (err) {
+      if (err.name === 'AbortError') return { type: 'timeout' };
+      return { type: 'network_error', message: err.message };
     }
-    return { type: 'server_error', status: res.status };
-  } catch (err) {
-    if (err.name === 'AbortError') return { type: 'timeout' };
-    return { type: 'network_error', message: err.message };
+  };
+
+  activeRefreshPromise = run();
+  window.__vaultRefreshPromise = activeRefreshPromise;
+
+  try {
+    return await activeRefreshPromise;
+  } finally {
+    activeRefreshPromise = null;
+    window.__vaultRefreshPromise = null;
   }
 }
 
